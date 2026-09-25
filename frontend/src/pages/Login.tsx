@@ -4,7 +4,6 @@ import {
   Eye,
   EyeOff,
   Sparkles,
-  ShieldCheck,
   ArrowRight,
   MessageSquare,
   TrendingUp,
@@ -16,8 +15,8 @@ import { loginApi } from '../services/api';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@leadengage.ai');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,12 +39,6 @@ export const Login: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleFillDemo = () => {
-    setEmail('admin@leadengage.ai');
-    setPassword('password123');
-    setErrorMessage(null);
   };
 
   return (
@@ -163,11 +156,11 @@ export const Login: React.FC = () => {
             </p>
           </div>
 
-          {/* Social Auth Buttons */}
+          {/* Social Auth Buttons - Google Only */}
           <div className="space-y-2.5">
             <button
               type="button"
-              onClick={handleFillDemo}
+              onClick={() => alert('Google Single Sign-On (SSO) will connect with your registered Google account.')}
               className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center space-x-2.5 transition-all shadow-sm"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -189,17 +182,6 @@ export const Login: React.FC = () => {
                 />
               </svg>
               <span>Continue with Google</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center space-x-2.5 transition-all shadow-sm"
-            >
-              <svg className="w-4 h-4 fill-current text-slate-900" viewBox="0 0 24 24">
-                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.85c.66-.82 1.11-1.96.99-3.1-.96.04-2.12.64-2.8 1.44-.59.69-1.11 1.83-.97 2.94 1.07.08 2.12-.46 2.78-1.28z" />
-              </svg>
-              <span>Continue with Apple</span>
             </button>
           </div>
 
@@ -223,14 +205,14 @@ export const Login: React.FC = () => {
             {/* Email */}
             <div className="bg-[#f4f5f8] rounded-xl px-4 py-2.5 border border-transparent focus-within:border-slate-300 transition-all">
               <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                Admin Email
+                Work Email
               </label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@leadengage.ai"
+                placeholder="name@company.com"
                 className="w-full bg-transparent text-xs font-semibold text-slate-900 focus:outline-none placeholder-slate-400 pt-0.5"
               />
             </div>
@@ -275,7 +257,7 @@ export const Login: React.FC = () => {
                 href="#forgot"
                 onClick={(e) => {
                   e.preventDefault();
-                  alert('Default credentials: admin@leadengage.ai / password123');
+                  alert('To reset your credentials, please contact support or your organization administrator at support@leadengage.ai');
                 }}
                 className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 underline underline-offset-2"
               >
@@ -293,22 +275,6 @@ export const Login: React.FC = () => {
               {!isLoading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
-
-          {/* Quick Demo Autofill Pill */}
-          <div
-            onClick={handleFillDemo}
-            className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-orange-50 hover:border-orange-200 cursor-pointer transition-all flex items-center justify-between text-xs text-slate-600"
-          >
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span className="text-[11px]">
-                Demo Admin: <strong className="text-slate-900 font-semibold">admin@leadengage.ai</strong>
-              </span>
-            </div>
-            <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider bg-white px-2 py-0.5 rounded-md border border-orange-200">
-              1-Click Fill
-            </span>
-          </div>
 
           {/* Footer Signup Prompt */}
           <div className="text-center text-xs text-slate-500">

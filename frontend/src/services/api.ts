@@ -18,7 +18,7 @@ export const API_BASE_URL = rawApiUrl
     : `${rawApiUrl.replace(/\/+$/, '')}/api`
   : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:5000/api'
-  : '/api';
+  : 'https://ai-lead-engagement.onrender.com/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

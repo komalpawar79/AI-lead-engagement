@@ -16,6 +16,7 @@ import {
   Loader2,
   CheckCircle2,
   Link as LinkIcon,
+  ExternalLink,
 } from 'lucide-react';
 import {
   getProjects,
@@ -53,6 +54,7 @@ export const Projects: React.FC = () => {
   const [developer, setDeveloper] = useState('');
   const [location, setLocation] = useState('');
   const [fullAddress, setFullAddress] = useState('');
+  const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [reraNumber, setReraNumber] = useState('');
   const [possession, setPossession] = useState('');
   const [amenities, setAmenities] = useState('');
@@ -64,6 +66,7 @@ export const Projects: React.FC = () => {
     setDeveloper('');
     setLocation('');
     setFullAddress('');
+    setGoogleMapsUrl('');
     setReraNumber('');
     setPossession('');
     setAmenities('');
@@ -76,6 +79,7 @@ export const Projects: React.FC = () => {
     setDeveloper(project.developer || '');
     setLocation(project.location || '');
     setFullAddress(project.fullAddress || '');
+    setGoogleMapsUrl(project.googleMapsUrl || '');
     setReraNumber(project.reraNumber || '');
     setPossession(project.possession || '');
     setAmenities(project.amenities || '');
@@ -196,6 +200,7 @@ export const Projects: React.FC = () => {
         developer,
         location,
         fullAddress: fullAddress || undefined,
+        googleMapsUrl: googleMapsUrl.trim() || undefined,
         reraNumber: reraNumber || undefined,
         possession: possession || undefined,
         amenities: amenities || undefined,
@@ -222,6 +227,7 @@ export const Projects: React.FC = () => {
         developer,
         location,
         fullAddress: fullAddress || null,
+        googleMapsUrl: googleMapsUrl.trim() || null,
         reraNumber: reraNumber || null,
         possession: possession || null,
         amenities: amenities || null,
@@ -464,6 +470,20 @@ export const Projects: React.FC = () => {
                     {project.fullAddress && (
                       <div className="text-[11px] text-slate-500 line-clamp-1 pl-5">
                         {project.fullAddress}
+                      </div>
+                    )}
+
+                    {project.googleMapsUrl && (
+                      <div className="pl-5 pt-0.5">
+                        <a
+                          href={project.googleMapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1 text-[11px] text-orange-600 hover:text-orange-700 font-semibold hover:underline"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>View Location Map Link</span>
+                        </a>
                       </div>
                     )}
 
@@ -1009,6 +1029,20 @@ export const Projects: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Location Map Link (Google Maps URL)</span>
+                  <span className="text-[10px] text-orange-600 font-normal">AI sends this link when leads ask for location</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="e.g. https://maps.app.goo.gl/... or https://maps.google.com/..."
+                  value={googleMapsUrl}
+                  onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2.5 bg-slate-50 focus:ring-1 focus:ring-orange-500"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Possession Date</label>
@@ -1237,6 +1271,20 @@ export const Projects: React.FC = () => {
                   type="text"
                   value={fullAddress}
                   onChange={(e) => setFullAddress(e.target.value)}
+                  className="w-full text-xs border border-slate-200 rounded-lg p-2.5 bg-slate-50 focus:ring-1 focus:ring-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Location Map Link (Google Maps URL)</span>
+                  <span className="text-[10px] text-orange-600 font-normal">AI sends this link when leads ask for location</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="e.g. https://maps.app.goo.gl/... or https://maps.google.com/..."
+                  value={googleMapsUrl}
+                  onChange={(e) => setGoogleMapsUrl(e.target.value)}
                   className="w-full text-xs border border-slate-200 rounded-lg p-2.5 bg-slate-50 focus:ring-1 focus:ring-orange-500"
                 />
               </div>

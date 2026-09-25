@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  ShieldCheck,
   ArrowRight,
   MessageSquare,
   TrendingUp,
@@ -15,8 +16,8 @@ import { loginApi } from '../services/api';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@leadengage.ai');
+  const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +40,12 @@ export const Login: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleFillDemo = () => {
+    setEmail('admin@leadengage.ai');
+    setPassword('password123');
+    setErrorMessage(null);
   };
 
   return (
@@ -160,7 +167,7 @@ export const Login: React.FC = () => {
           <div className="space-y-2.5">
             <button
               type="button"
-              onClick={() => alert('Google Single Sign-On (SSO) will connect with your company domain.')}
+              onClick={handleFillDemo}
               className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center space-x-2.5 transition-all shadow-sm"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -186,7 +193,7 @@ export const Login: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => alert('Apple Single Sign-On (SSO) will connect with your company domain.')}
+              onClick={handleFillDemo}
               className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center space-x-2.5 transition-all shadow-sm"
             >
               <svg className="w-4 h-4 fill-current text-slate-900" viewBox="0 0 24 24">
@@ -216,14 +223,14 @@ export const Login: React.FC = () => {
             {/* Email */}
             <div className="bg-[#f4f5f8] rounded-xl px-4 py-2.5 border border-transparent focus-within:border-slate-300 transition-all">
               <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                Work Email
+                Admin Email
               </label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com"
+                placeholder="admin@leadengage.ai"
                 className="w-full bg-transparent text-xs font-semibold text-slate-900 focus:outline-none placeholder-slate-400 pt-0.5"
               />
             </div>
@@ -268,7 +275,7 @@ export const Login: React.FC = () => {
                 href="#forgot"
                 onClick={(e) => {
                   e.preventDefault();
-                  alert('To reset your credentials, please contact support or your organization administrator at support@leadengage.ai');
+                  alert('Default credentials: admin@leadengage.ai / password123');
                 }}
                 className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 underline underline-offset-2"
               >
@@ -286,6 +293,22 @@ export const Login: React.FC = () => {
               {!isLoading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
+
+          {/* Quick Demo Autofill Pill */}
+          <div
+            onClick={handleFillDemo}
+            className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-orange-50 hover:border-orange-200 cursor-pointer transition-all flex items-center justify-between text-xs text-slate-600"
+          >
+            <div className="flex items-center space-x-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span className="text-[11px]">
+                Demo Admin: <strong className="text-slate-900 font-semibold">admin@leadengage.ai</strong>
+              </span>
+            </div>
+            <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider bg-white px-2 py-0.5 rounded-md border border-orange-200">
+              1-Click Fill
+            </span>
+          </div>
 
           {/* Footer Signup Prompt */}
           <div className="text-center text-xs text-slate-500">

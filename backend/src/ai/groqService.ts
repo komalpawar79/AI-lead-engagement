@@ -315,12 +315,21 @@ Analyze the conversation context and return the structured JSON object.`;
       followUpReason = 'Customer confirmed active interest in the project';
     }
 
+    const isLocationQuery = /\b(location|address|kahan|kidhar|where|map|google map|directions|reach|rasta)\b/i.test(customerAllText);
+
     let nextSuggestedMessage: string;
 
     if (callbackRequested) {
       nextSuggestedMessage = `Got it, ${customerName}! 📞 Our property consultant for ${project.name} will call you shortly. What is a good time to reach you?`;
     } else if (siteVisitRequested) {
       nextSuggestedMessage = `We would love to host you at ${project.name}! 🏠 Would tomorrow or this weekend suit you best for the site visit?`;
+    } else if (isLocationQuery) {
+      const locText = project.fullAddress ? `${project.location} (${project.fullAddress})` : project.location;
+      if (project.googleMapsUrl) {
+        nextSuggestedMessage = `${project.name} is located at ${locText}. 📍 Here is the Google Maps link: ${project.googleMapsUrl} Would you like to schedule a visit?`;
+      } else {
+        nextSuggestedMessage = `${project.name} is located at ${locText}. 📍 Would you like to schedule a visit to see the project?`;
+      }
     } else if (!configuration) {
       nextSuggestedMessage = `Great! 😊 Are you looking for a 2 BHK or a 3 BHK in ${project.name}?`;
     } else if (!budget) {

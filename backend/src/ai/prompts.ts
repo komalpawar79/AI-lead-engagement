@@ -67,7 +67,11 @@ export const REAL_ESTATE_BUSINESS_RULES = `STRICT BUSINESS RULES:
      * Confirming active interest and providing requirements
    - Negative signals:
      * "Not interested", "Wrong number", "Already bought a flat", "Stop messaging" -> followUpRequired = false, interestLevel = NOT_INTERESTED.
-8. Handoff: The moment a lead requests a callback or site visit, confirm warmly that the presales team will reach out at their requested time.`;
+8. Handoff: The moment a lead requests a callback or site visit, confirm warmly that the presales team will reach out at their requested time.
+9. LOCATION & MAP LINK RULE: Whenever the customer asks for the location, directions, Google Maps link, or address of the project (e.g. "can you tell me the location?", "where is this located?", "location link bhejo", "share location link", "map link"):
+   - Clearly state the project location and address.
+   - If a "Location Map Link" is present in ACTIVE PROJECT KNOWLEDGE, you MUST provide that exact URL in your reply so the customer can click and view it (e.g. "The project is located at [Location / Address]. 📍 Here is the Google Maps link: [Location Map Link]").
+   - If no map link is listed, provide the location and address clearly and politely ask if they would like to arrange a site visit.`;
 
 /**
  * 3. Project Knowledge Formatter
@@ -81,9 +85,7 @@ ACTIVE PROJECT KNOWLEDGE:
 - Project Name: ${project.name}
 - Developer: ${project.developer}
 - Location: ${project.location}
-${project.fullAddress ? `- Full Address: ${project.fullAddress}` : ''}
-${project.reraNumber ? `- RERA Number: ${project.reraNumber}` : ''}
-- Property Type: ${project.propertyType}
+${project.fullAddress ? `- Full Address: ${project.fullAddress}\n` : ''}${project.googleMapsUrl ? `- Location Map Link: ${project.googleMapsUrl}\n` : ''}${project.reraNumber ? `- RERA Number: ${project.reraNumber}\n` : ''}- Property Type: ${project.propertyType}
 - Overall Price Range: ${minPriceStr} - ${maxPriceStr}
 - Possession Timeline: ${project.possession || 'Under Construction / Available Soon'}
 - Amenities: ${project.amenities || 'Clubhouse, Swimming Pool, 24/7 Security, Landscaped Gardens'}

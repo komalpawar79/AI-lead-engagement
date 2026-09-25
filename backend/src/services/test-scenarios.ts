@@ -55,7 +55,7 @@ async function runScenarioTests() {
   if (!projectContext) throw new Error('Failed to load project context');
 
   let passedTests = 0;
-  let totalTests = 7;
+  let totalTests = 8;
 
   // --------------------------------------------------------------------------
   // SCENARIO A: Callback confirmation -> Thank you -> You're welcome -> Ok -> no unnecessary repeated callback confirmation
@@ -485,12 +485,61 @@ async function runScenarioTests() {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // SCENARIO H: Relative Time Callback ("half hour mai call krna")
+  // --------------------------------------------------------------------------
+  console.log('\n--- SCENARIO H: Relative Time Callback ("half hour mai call krna") ---');
+  {
+    const leadH = await prisma.lead.create({
+      data: {
+        name: 'Deepak Sharma',
+        phone: '919876500008',
+        projectId: project.id,
+        source: 'TEST',
+        status: 'INTERESTED',
+      },
+    });
+
+    const convH = await prisma.conversation.create({
+      data: {
+        leadId: leadH.id,
+        channel: 'TEST',
+        status: 'ACTIVE',
+        lastAssistantAction: 'ASKED_CALLBACK_INTEREST',
+        pendingQuestion: 'CALLBACK_OFFER',
+      },
+    });
+
+    // Customer says: "half hour mai call krna"
+    const resH = await conversationService.handleIncomingMessage({
+      leadId: leadH.id,
+      messageText: 'half hour mai call krna',
+      senderType: 'CUSTOMER',
+    });
+    console.log('Customer: half hour mai call krna');
+    console.log('Aria:', resH.aiMessage?.messageText);
+
+    const updatedConvH = await prisma.conversation.findUnique({ where: { id: convH.id } });
+    const updatedFollowUpH = await prisma.followUp.findFirst({ where: { leadId: leadH.id } });
+
+    const confirmedHalfHour = resH.aiMessage?.messageText.toLowerCase().includes('in half an hour') || resH.aiMessage?.messageText.toLowerCase().includes('half');
+    const dbHasHalfHour = updatedConvH?.actionTime?.toLowerCase().includes('half');
+    const followUpHasHalfHour = updatedFollowUpH?.reason.toLowerCase().includes('half');
+
+    if (confirmedHalfHour && dbHasHalfHour && followUpHasHalfHour) {
+      console.log('✅ SCENARIO H PASSED: Relative time "half hour mai call krna" correctly scheduled for half an hour.');
+      passedTests++;
+    } else {
+      console.error('❌ SCENARIO H FAILED:', { confirmedHalfHour, dbHasHalfHour, followUpHasHalfHour });
+    }
+  }
+
   console.log('\n===============================================================');
   console.log(`TEST EXECUTION SUMMARY: ${passedTests}/${totalTests} SCENARIOS PASSED`);
   console.log('===============================================================\n');
 
   if (passedTests === totalTests) {
-    console.log('🎉 ALL 7 REQUIRED SCENARIOS PASSED WITH 100% ACCURACY!');
+    console.log('🎉 ALL SCENARIOS (INCLUDING RELATIVE TIME HALF-HOUR) PASSED WITH 100% ACCURACY!');
   } else {
     throw new Error(`Only ${passedTests}/${totalTests} tests passed.`);
   }

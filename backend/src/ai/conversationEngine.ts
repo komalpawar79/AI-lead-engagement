@@ -168,7 +168,7 @@ export class ConversationEngine {
       wasConfirmed &&
       detectedTime &&
       (detectedTime.toLowerCase() !== (existingTime || '').toLowerCase() ||
-        /\b(actually|change|make it|instead|reschedule|shift|kal|today|tomorrow)\b/i.test(textLower));
+        /\b(actually|change|make it|instead|reschedule|shift|kal|today|tomorrow|half|mins?|hours?|ghante?)\b/i.test(textLower));
 
     if (isTimeChangeRequest && detectedTime) {
       const normalizedTime = this.formatTimeDisplay(detectedTime);
@@ -615,9 +615,22 @@ export class ConversationEngine {
       return 'SITE_VISIT';
     }
 
-    // 8. Callback
-    if (/\b(call me|callback|call karna|phone karna|please call)\b/i.test(textLower)) {
+    // 8. Callback & Call with Time
+    if (
+      /\b(call me|callback|call karna|call krna|call karo|call kijiye|phone karna|please call|connect on call|call)\b/i.test(
+        textLower
+      )
+    ) {
+      const timeFound = this.extractTimePhrase(rawText);
+      if (timeFound) {
+        return 'CALLBACK_CONFIRMATION';
+      }
       return 'CALLBACK_REQUEST';
+    }
+
+    // 8b. Standalone Time Phrase (e.g. "half hour mai", "in 30 mins", "after 1 hour")
+    if (this.extractTimePhrase(rawText)) {
+      return 'CALLBACK_CONFIRMATION';
     }
 
     // 9. Standard Acknowledgment
@@ -714,22 +727,61 @@ export class ConversationEngine {
    * Helper: extract time phrases (e.g. "Today around 6:30 PM", "7:00 PM", "tomorrow 4pm")
    */
   public extractTimePhrase(text: string): string | null {
-    // 1. Matches "today around 6:30 PM", "tomorrow 5:00 pm", "today at 7 PM"
-    const fullMatch = text.match(
+    const t = text.trim();
+
+    // 1. Half an hour / aadha ghanta / 30 mins
+    if (
+      /\b(half(?:\s+an)?\s*(?:hour|hr)|halfhour|1\/2\s*hour|aadhe?\s*ghante?|adha\s*ghanta)\b/i.test(t)
+    ) {
+      return 'in half an hour';
+    }
+
+    // 2. X minutes (e.g. 15 mins, 20 minutes, 30 min, 45 mins)
+    const minsMatch = t.match(/\b(?:in|after)?\s*(\d{1,2})\s*(?:mins?|minutes?|min)\b/i);
+    if (minsMatch) {
+      return `in ${minsMatch[1]} minutes`;
+    }
+
+    // 3. X hours (e.g. 1 hour, 2 hours, 1 ghanta)
+    const hoursMatch = t.match(/\b(?:in|after)?\s*(\d{1,2})\s*(?:hours?|hrs?|ghante?)\b/i);
+    if (hoursMatch) {
+      const h = parseInt(hoursMatch[1], 10);
+      return `in ${h} ${h === 1 ? 'hour' : 'hours'}`;
+    }
+
+    // 4. Time of day: evening, morning, afternoon
+    if (/\b(?:this\s+|today\s+|aaj\s+)?(evening|shaam|sham)\b/i.test(t) && !/\b(tomorrow|kal)\b/i.test(t)) {
+      return 'this evening';
+    }
+    if (/\b(?:tomorrow|kal)\s*(?:morning|subah)\b/i.test(t)) {
+      return 'tomorrow morning';
+    }
+    if (/\b(?:tomorrow|kal)\s*(?:evening|shaam|sham)\b/i.test(t)) {
+      return 'tomorrow evening';
+    }
+    if (/\b(?:tomorrow|kal)\s*(?:afternoon|dopahar)\b/i.test(t)) {
+      return 'tomorrow afternoon';
+    }
+    if (/\b(?:tomorrow|kal)\b/i.test(t) && !/\d/.test(t)) {
+      return 'tomorrow';
+    }
+
+    // 5. Clock time with day/period: "today around 6:30 PM", "tomorrow 5:00 pm", "today at 7 PM"
+    const fullMatch = t.match(
       /(today|tomorrow|kal|aaj)?\s*(around|at|by|approx)?\s*([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm|baje)\b(?:\s*(today|tomorrow|evening|morning|afternoon|kal|aaj))?/i
     );
     if (fullMatch && fullMatch[0].trim().length > 2) {
       return fullMatch[0].trim();
     }
 
-    // 2. Matches "6:30 PM", "7:00 PM", "4pm", "6 PM"
-    const simpleTimeMatch = text.match(/\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
+    // 6. Simple clock time: "6:30 PM", "7:00 PM", "4pm", "6 PM"
+    const simpleTimeMatch = t.match(/\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
     if (simpleTimeMatch) {
       return simpleTimeMatch[0].trim();
     }
 
-    // 3. Matches "6:30" or "7:00" if in context of evening/time
-    const digitMatch = text.match(/\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b/);
+    // 7. Matches "6:30" or "7:00"
+    const digitMatch = t.match(/\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b/);
     if (digitMatch) {
       return digitMatch[0].trim();
     }
@@ -742,6 +794,9 @@ export class ConversationEngine {
    */
   private formatTimeDisplay(timeStr: string): string {
     let clean = timeStr.trim();
+    if (/^(in|this|tomorrow|today|after)\b/i.test(clean)) {
+      return clean;
+    }
     if (!/today|tomorrow|kal|aaj/i.test(clean)) {
       return `today at ${clean}`;
     }

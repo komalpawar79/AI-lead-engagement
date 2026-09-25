@@ -1,0 +1,201 @@
+// Production PostgreSQL Schema
+// To switch to PostgreSQL in production:
+// 1. Set DATABASE_URL="postgresql://user:password@host:5432/dbname" in .env
+// 2. Copy this file content to schema.prisma or run: npx prisma db push --schema=prisma/schema.postgresql.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  role          String         @default("ADMIN") // ADMIN, USER
+  status        String         @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Project {
+  id             String             @id @default(uuid())
+  name           String
+  developer      String
+  location       String
+  description    String?
+  propertyType   String             @default("Residential Apartment") @map("property_type")
+  configurations String // e.g. "1 BHK, 2 BHK, 3 BHK"
+  priceMin       Float?             @map("price_min")
+  priceMax       Float?             @map("price_max")
+  amenities      String? // e.g. "Clubhouse, Swimming Pool, Gym, 24/7 Security"
+  possession     String? // e.g. "Dec 2026"
+  status         String             @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  knowledge      ProjectKnowledge[]
+  campaigns      Campaign[]
+  leads          Lead[]
+
+  @@map("projects")
+}
+
+model ProjectKnowledge {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category  String   @default("GENERAL") // PRICING, CONFIGURATION, AMENITIES, LOCATION, POSSESSION, FAQ
+  question  String
+  answer    String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("project_knowledge")
+}
+
+model Campaign {
+  id              String         @id @default(uuid())
+  projectId       String         @map("project_id")
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  status          String         @default("DRAFT") // DRAFT, RUNNING, PAUSED, COMPLETED, FAILED
+  totalLeads      Int            @default(0) @map("total_leads")
+  messagesSent    Int            @default(0) @map("messages_sent")
+  responses       Int            @default(0)
+  interestedLeads Int            @default(0) @map("interested_leads")
+  followUpLeads   Int            @default(0) @map("follow_up_leads")
+  notInterested   Int            @default(0) @map("not_interested")
+  noResponse      Int            @default(0) @map("no_response")
+  startedAt       DateTime?      @map("started_at")
+  completedAt     DateTime?      @map("completed_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  leads           Lead[]
+  conversations   Conversation[]
+
+  @@map("campaigns")
+}
+
+model Lead {
+  id               String         @id @default(uuid())
+  campaignId       String?        @map("campaign_id")
+  campaign         Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  projectId        String         @map("project_id")
+  project          Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  phone            String
+  email            String?
+  source           String         @default("EXCEL_IMPORT") // EXCEL_IMPORT, MANUAL, WHATSAPP_INBOUND
+  status           String         @default("IMPORTED") // IMPORTED, PENDING, CONTACTED, RESPONDED, INTERESTED, NOT_INTERESTED, NO_RESPONSE, FOLLOW_UP
+  interestLevel    String         @default("UNKNOWN") @map("interest_level") // HIGH, MEDIUM, LOW, NOT_INTERESTED, UNKNOWN
+  followUpRequired Boolean        @default(false) @map("follow_up_required")
+  followUpReason   String?        @map("follow_up_reason")
+  requirement      String? // e.g. "Looking for 2 BHK near Metro"
+  configuration    String? // e.g. "2 BHK"
+  budget           Float? // e.g. 8000000
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  conversations    Conversation[]
+  analyses         AIAnalysis[]
+  followUps        FollowUp[]
+
+  @@map("leads")
+}
+
+model Conversation {
+  id            String       @id @default(uuid())
+  leadId        String       @map("lead_id")
+  lead          Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId    String?      @map("campaign_id")
+  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  channel       String       @default("WHATSAPP") // WHATSAPP, TEST
+  status        String       @default("ACTIVE") // ACTIVE, COMPLETED, PAUSED
+  startedAt     DateTime     @default(now()) @map("started_at")
+  lastMessageAt DateTime     @default(now()) @map("last_message_at")
+  endedAt       DateTime?    @map("ended_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  messages      Message[]
+  analyses      AIAnalysis[]
+  followUps     FollowUp[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id                String       @id @default(uuid())
+  conversationId    String       @map("conversation_id")
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType        String       @map("sender_type") // AI, CUSTOMER, SYSTEM
+  messageText       String       @map("message_text")
+  messageType       String       @default("TEXT") @map("message_type") // TEXT, IMAGE, DOCUMENT, SYSTEM
+  externalMessageId String?      @map("external_message_id") // Meta WhatsApp Message ID
+  deliveryStatus    String       @default("SENT") @map("delivery_status") // SENT, DELIVERED, READ, FAILED
+  sentAt            DateTime     @default(now()) @map("sent_at")
+  receivedAt        DateTime?    @map("received_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  @@map("messages")
+}
+
+model AIAnalysis {
+  id                 String       @id @default(uuid())
+  conversationId     String       @map("conversation_id")
+  conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  leadId             String       @map("lead_id")
+  lead               Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  intent             String // PROPERTY_INTEREST, PRICE_INQUIRY, SITE_VISIT, CALLBACK_REQUEST, NOT_INTERESTED, GENERAL_INQUIRY
+  interestLevel      String       @map("interest_level") // HIGH, MEDIUM, LOW, NOT_INTERESTED
+  followUpRequired   Boolean      @map("follow_up_required")
+  followUpReason     String?      @map("follow_up_reason")
+  configuration      String?
+  budget             Float?
+  preferredLocation  String?      @map("preferred_location")
+  callbackRequested  Boolean      @default(false) @map("callback_requested")
+  siteVisitRequested Boolean      @default(false) @map("site_visit_requested")
+  summary            String
+  confidenceScore    Float        @default(0.9) @map("confidence_score")
+  model              String       @default("gpt-4o-mini")
+  promptVersion      String       @default("v1.0") @map("prompt_version")
+  createdAt          DateTime     @default(now()) @map("created_at")
+
+  @@map("ai_analyses")
+}
+
+model FollowUp {
+  id             String       @id @default(uuid())
+  leadId         String       @map("lead_id")
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reason         String
+  priority       String       @default("MEDIUM") // LOW, MEDIUM, HIGH
+  status         String       @default("PENDING") // PENDING, EXPORTED, COMPLETED
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("follow_ups")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // CAMPAIGN_COMPLETED, FOLLOW_UP_IDENTIFIED, EXCEL_EXPORT_READY, SYSTEM_ALERT
+  title     String
+  message   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+

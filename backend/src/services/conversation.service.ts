@@ -1,6 +1,9 @@
 import prisma from '../prisma/client';
 import logger from '../utils/logger';
-import aiService, { StructuredAIOutput } from '../ai/groqService';
+import conversationEngine, {
+  ConversationState,
+  EngineDecision,
+} from '../ai/conversationEngine';
 import projectKnowledgeService from './projectKnowledge.service';
 import followUpService from './followUp.service';
 import whatsappService from '../whatsapp/whatsapp.service';
@@ -19,21 +22,50 @@ export interface ConversationResult {
   leadId: string;
   customerMessage: any;
   aiMessage: any;
-  analysis: StructuredAIOutput;
+  analysis: any;
+  decision?: EngineDecision;
+  isDuplicate?: boolean;
 }
 
 class ConversationService {
   /**
    * Handle an incoming message from a lead (either live WhatsApp or Test simulator)
+   * Enforces conversation state tracking, idempotency, and action separation.
    */
   public async handleIncomingMessage(input: HandleMessageInput): Promise<ConversationResult> {
     const { leadId, messageText, channel = 'TEST', externalMessageId } = input;
 
-    // 1. Fetch Lead & associated Project
+    // 1. Idempotency Check: Verify duplicate externalMessageId to prevent repeated processing
+    if (externalMessageId) {
+      const existingMessage = await prisma.message.findFirst({
+        where: { externalMessageId },
+      });
+      if (existingMessage) {
+        logger.warn(
+          { externalMessageId, leadId },
+          'Duplicate incoming message detected via externalMessageId. Ignoring to prevent duplicate responses.'
+        );
+        return {
+          conversationId: existingMessage.conversationId,
+          leadId,
+          customerMessage: existingMessage,
+          aiMessage: null,
+          analysis: null,
+          isDuplicate: true,
+        };
+      }
+    }
+
+    // 2. Fetch Lead & associated Project
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
       include: {
-        project: true,
+        project: {
+          include: {
+            inventory: true,
+            knowledge: true,
+          },
+        },
         campaign: true,
       },
     });
@@ -42,11 +74,11 @@ class ConversationService {
       throw new Error(`Lead with ID ${leadId} not found`);
     }
 
-    // 2. Fetch or create active conversation
+    // 3. Fetch or reactivate conversation (ACTIVE or IDLE)
     let conversation = await prisma.conversation.findFirst({
       where: {
         leadId: lead.id,
-        status: 'ACTIVE',
+        status: { in: ['ACTIVE', 'IDLE'] },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -62,7 +94,7 @@ class ConversationService {
       });
     }
 
-    // 3. Save Customer message
+    // 4. Save Customer message to DB
     const customerMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -75,7 +107,7 @@ class ConversationService {
       },
     });
 
-    // 4. Fetch Conversation Message History
+    // 5. Fetch full conversation message history
     const allMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { sentAt: 'asc' },
@@ -87,97 +119,185 @@ class ConversationService {
       sentAt: m.sentAt,
     }));
 
-    // 5. Get Project Knowledge Context
+    // 6. Get Project Knowledge Context
     const projectContext = await projectKnowledgeService.getProjectContext(lead.projectId);
     if (!projectContext) {
       throw new Error(`Project knowledge context not found for project ID ${lead.projectId}`);
     }
 
-    // 6. Invoke AI Layer for Conversation + Structured Analysis
-    const analysis = await aiService.processConversation(
-      lead.name,
+    // 7. Invoke Conversation Engine State Machine
+    const conversationState: ConversationState = {
+      conversationId: conversation.id,
+      leadId: lead.id,
+      leadName: lead.name,
+      leadPhone: lead.phone,
+      status: conversation.status as any,
+      lastCustomerIntent: conversation.lastCustomerIntent,
+      lastAssistantAction: conversation.lastAssistantAction,
+      pendingQuestion: conversation.pendingQuestion,
+      actionType: conversation.actionType as any,
+      actionStatus: conversation.actionStatus as any,
+      actionTime: conversation.actionTime,
+      actionConfirmed: conversation.actionConfirmed,
+      knownConfiguration: lead.configuration,
+      knownBudget: lead.budget,
+    };
+
+    const decision = await conversationEngine.evaluateMessage(
+      conversationState,
       messageText,
       history,
       projectContext
     );
 
-    // 7. Save AI Response Message
-    const aiMsg = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderType: 'AI',
-        messageText: analysis.nextSuggestedMessage,
-        deliveryStatus: channel === 'WHATSAPP' ? 'SENT' : 'DELIVERED',
-        sentAt: new Date(),
-      },
-    });
+    // 8. Backend Action Validation & Persistence (Execute actions BEFORE confirming)
+    if (decision.intent === 'OPT_OUT') {
+      // Opt-out handling: Update lead, mark not interested, cancel pending followups
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: 'NOT_INTERESTED',
+          interestLevel: 'NOT_INTERESTED',
+          followUpRequired: false,
+          followUpReason: decision.followUpReason,
+          updatedAt: new Date(),
+        },
+      });
 
-    // 8. If channel is WhatsApp, send outbound message to customer
-    if (channel === 'WHATSAPP') {
-      whatsappService
-        .sendTextMessage(lead.phone, analysis.nextSuggestedMessage)
-        .catch((err: any) => logger.error({ err }, 'Outbound WhatsApp delivery failed'));
+      await prisma.followUp.updateMany({
+        where: { leadId: lead.id, status: 'PENDING' },
+        data: { status: 'COMPLETED' },
+      });
+    } else if (
+      decision.proposedAction.type === 'SCHEDULE_CALLBACK' ||
+      decision.proposedAction.type === 'UPDATE_CALLBACK_TIME'
+    ) {
+      // Callback persistence: Idempotent create or update follow-up record
+      const scheduledTime = decision.updatedState.actionTime || 'Requested time';
+      const followUpReason = `Callback requested for ${scheduledTime}`;
+
+      const existingFollowUp = await prisma.followUp.findFirst({
+        where: {
+          leadId: lead.id,
+          conversationId: conversation.id,
+        },
+      });
+
+      if (existingFollowUp) {
+        await prisma.followUp.update({
+          where: { id: existingFollowUp.id },
+          data: {
+            reason: followUpReason,
+            priority: 'HIGH',
+            status: 'PENDING',
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.followUp.create({
+          data: {
+            leadId: lead.id,
+            conversationId: conversation.id,
+            reason: followUpReason,
+            priority: 'HIGH',
+            status: 'PENDING',
+          },
+        });
+      }
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: 'FOLLOW_UP',
+          interestLevel: 'HIGH',
+          followUpRequired: true,
+          followUpReason,
+          updatedAt: new Date(),
+        },
+      });
     }
 
-    // 9. Store AI Analysis record
-    await prisma.aIAnalysis.create({
-      data: {
-        conversationId: conversation.id,
-        leadId: lead.id,
-        intent: analysis.intent,
-        interestLevel: analysis.interestLevel,
-        followUpRequired: analysis.followUpRequired,
-        followUpReason: analysis.followUpReason,
-        configuration: analysis.configuration,
-        budget: analysis.budget,
-        preferredLocation: analysis.preferredLocation,
-        callbackRequested: analysis.callbackRequested,
-        siteVisitRequested: analysis.siteVisitRequested,
-        summary: analysis.summary,
-        confidenceScore: 0.95,
-        model: analysis.model,
-        promptVersion: analysis.promptVersion,
-      },
-    });
-
-    // 10. Update Lead Status & Extracted entities
-    let newLeadStatus = 'RESPONDED';
-    if (analysis.followUpRequired) {
-      newLeadStatus = 'FOLLOW_UP';
-    } else if (analysis.interestLevel === 'NOT_INTERESTED') {
-      newLeadStatus = 'NOT_INTERESTED';
-    } else if (analysis.interestLevel === 'HIGH' || analysis.interestLevel === 'MEDIUM') {
-      newLeadStatus = 'INTERESTED';
+    // 9. Update Lead preferences (budget, configuration) if newly extracted
+    const leadUpdates: any = { updatedAt: new Date() };
+    if (decision.extractedData.configuration && !lead.configuration) {
+      leadUpdates.configuration = decision.extractedData.configuration;
     }
-
+    if (decision.extractedData.budget) {
+      leadUpdates.budget = decision.extractedData.budget;
+    }
+    if (decision.intent !== 'OPT_OUT') {
+      leadUpdates.interestLevel = decision.interestLevel;
+      leadUpdates.followUpRequired = decision.followUpRequired;
+      if (decision.followUpReason) {
+        leadUpdates.followUpReason = decision.followUpReason;
+      }
+    }
     await prisma.lead.update({
       where: { id: lead.id },
-      data: {
-        status: newLeadStatus,
-        interestLevel: analysis.interestLevel,
-        followUpRequired: analysis.followUpRequired,
-        followUpReason: analysis.followUpReason,
-        configuration: analysis.configuration || lead.configuration,
-        budget: analysis.budget || lead.budget,
-        updatedAt: new Date(),
-      },
+      data: leadUpdates,
     });
 
-    // 11. Create or Update Follow-up if required
-    if (analysis.followUpRequired) {
-      await followUpService.createOrUpdateFollowUp(
-        lead.id,
-        conversation.id,
-        analysis.followUpReason,
-        analysis.interestLevel === 'HIGH' ? 'HIGH' : 'MEDIUM'
-      );
-    }
-
-    // 12. Update Conversation timestamp
+    // 10. Persist Conversation State to Database
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
+        status: decision.updatedState.status,
+        lastCustomerIntent: decision.updatedState.lastCustomerIntent,
+        lastAssistantAction: decision.updatedState.lastAssistantAction,
+        pendingQuestion: decision.updatedState.pendingQuestion,
+        actionType: decision.updatedState.actionType,
+        actionStatus: decision.updatedState.actionStatus,
+        actionTime: decision.updatedState.actionTime,
+        actionConfirmed: decision.updatedState.actionConfirmed,
         lastMessageAt: new Date(),
+      },
+    });
+
+    // 11. Handle Outbound Message Sending (Support intentional NO_REPLY)
+    let aiMsg: any = null;
+
+    if (decision.shouldSendReply && decision.replyMessage) {
+      aiMsg = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'AI',
+          messageText: decision.replyMessage,
+          deliveryStatus: channel === 'WHATSAPP' ? 'SENT' : 'DELIVERED',
+          sentAt: new Date(),
+        },
+      });
+
+      // Send to customer via WhatsApp only if channel is WHATSAPP
+      if (channel === 'WHATSAPP') {
+        whatsappService
+          .sendTextMessage(lead.phone, decision.replyMessage)
+          .catch((err: any) => logger.error({ err }, 'Outbound WhatsApp delivery failed'));
+      }
+    } else {
+      logger.info(
+        { conversationId: conversation.id, leadId: lead.id },
+        'Intentional NO_REPLY applied: suppressed unnecessary or repeated outbound message.'
+      );
+    }
+
+    // 12. Store AI Analysis Audit record
+    const analysisRecord = await prisma.aIAnalysis.create({
+      data: {
+        conversationId: conversation.id,
+        leadId: lead.id,
+        intent: decision.intent,
+        interestLevel: decision.interestLevel,
+        followUpRequired: decision.followUpRequired,
+        followUpReason: decision.followUpReason,
+        configuration: decision.extractedData.configuration || lead.configuration,
+        budget: decision.extractedData.budget || lead.budget,
+        preferredLocation: lead.project?.location || null,
+        callbackRequested: decision.updatedState.actionType === 'CALLBACK',
+        siteVisitRequested: decision.updatedState.actionType === 'SITE_VISIT',
+        summary: decision.summary,
+        confidenceScore: 0.95,
+        model: 'conversation-state-engine-v2',
+        promptVersion: 'v2.0-state-engine',
       },
     });
 
@@ -191,7 +311,8 @@ class ConversationService {
       leadId: lead.id,
       customerMessage: customerMsg,
       aiMessage: aiMsg,
-      analysis,
+      analysis: analysisRecord,
+      decision,
     };
   }
 
@@ -211,6 +332,8 @@ class ConversationService {
         campaignId: lead.campaignId,
         channel,
         status: 'ACTIVE',
+        lastAssistantAction: 'ASKED_PROPERTY_INTEREST',
+        pendingQuestion: 'GENERAL',
       },
     });
 
@@ -248,33 +371,35 @@ class ConversationService {
    * Recalculate campaign progress statistics
    */
   public async refreshCampaignStats(campaignId: string) {
-    try {
-      const leads = await prisma.lead.findMany({
-        where: { campaignId },
-        select: { status: true, followUpRequired: true, interestLevel: true },
-      });
+    const counts = await prisma.lead.groupBy({
+      by: ['status'],
+      where: { campaignId },
+      _count: { id: true },
+    });
 
-      const totalLeads = leads.length;
-      const responses = leads.filter((l) => ['RESPONDED', 'INTERESTED', 'NOT_INTERESTED', 'FOLLOW_UP'].includes(l.status)).length;
-      const interestedLeads = leads.filter((l) => ['INTERESTED', 'FOLLOW_UP'].includes(l.status)).length;
-      const followUpLeads = leads.filter((l) => l.followUpRequired).length;
-      const notInterested = leads.filter((l) => l.status === 'NOT_INTERESTED').length;
-      const noResponse = leads.filter((l) => l.status === 'NO_RESPONSE').length;
+    const stats: Record<string, number> = {};
+    counts.forEach((c) => {
+      stats[c.status] = c._count.id;
+    });
 
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: {
-          totalLeads,
-          responses,
-          interestedLeads,
-          followUpLeads,
-          notInterested,
-          noResponse,
-        },
-      });
-    } catch (err) {
-      logger.error({ err, campaignId }, 'Error updating campaign statistics');
-    }
+    const interestedCount = stats['INTERESTED'] || 0;
+    const followUpCount = stats['FOLLOW_UP'] || 0;
+    const notInterestedCount = stats['NOT_INTERESTED'] || 0;
+    const contactedCount = stats['CONTACTED'] || 0;
+    const respondedCount = stats['RESPONDED'] || 0;
+
+    const totalResponses = interestedCount + followUpCount + notInterestedCount + respondedCount;
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        interestedLeads: interestedCount,
+        followUpLeads: followUpCount,
+        notInterested: notInterestedCount,
+        responses: totalResponses,
+        updatedAt: new Date(),
+      },
+    });
   }
 }
 

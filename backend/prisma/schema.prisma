@@ -145,15 +145,23 @@ model Conversation {
   campaignId    String?      @map("campaign_id")
   campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   channel       String       @default("WHATSAPP") // WHATSAPP, TEST
-  status        String       @default("ACTIVE") // ACTIVE, COMPLETED, PAUSED
-  startedAt     DateTime     @default(now()) @map("started_at")
-  lastMessageAt DateTime     @default(now()) @map("last_message_at")
-  endedAt       DateTime?    @map("ended_at")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
-  messages      Message[]
-  analyses      AIAnalysis[]
-  followUps     FollowUp[]
+  status              String       @default("ACTIVE") // ACTIVE, IDLE, CLOSED, PAUSED
+  lastCustomerIntent  String?      @map("last_customer_intent")
+  lastAssistantAction String?      @map("last_assistant_action")
+  pendingQuestion     String?      @map("pending_question")
+  actionType          String?      @map("action_type") // CALLBACK, SITE_VISIT, NONE
+  actionStatus        String?      @map("action_status") // NONE, PENDING_TIME, CONFIRMED, COMPLETED, CANCELLED
+  actionTime          String?      @map("action_time")
+  actionConfirmed     Boolean      @default(false) @map("action_confirmed")
+  metadata            String?      @map("metadata")
+  startedAt           DateTime     @default(now()) @map("started_at")
+  lastMessageAt       DateTime     @default(now()) @map("last_message_at")
+  endedAt             DateTime?    @map("ended_at")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  messages            Message[]
+  analyses            AIAnalysis[]
+  followUps           FollowUp[]
 
   @@map("conversations")
 }
@@ -171,6 +179,7 @@ model Message {
   receivedAt        DateTime?    @map("received_at")
   createdAt         DateTime     @default(now()) @map("created_at")
 
+  @@index([externalMessageId])
   @@map("messages")
 }
 

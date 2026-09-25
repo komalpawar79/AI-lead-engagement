@@ -42,6 +42,20 @@ export const handleWhatsAppWebhook = async (req: Request, res: Response) => {
         { attempts: 3 },
         async (eventData) => {
           try {
+            // Deduplicate incoming webhook messages immediately
+            if (eventData.messageId) {
+              const existingMsg = await prisma.message.findFirst({
+                where: { externalMessageId: eventData.messageId },
+              });
+              if (existingMsg) {
+                logger.info(
+                  { messageId: eventData.messageId },
+                  'Inbound WhatsApp message already processed. Dropping duplicate event.'
+                );
+                return;
+              }
+            }
+
             const rawPhone = eventData.fromPhone.replace(/\D/g, '');
             // Find lead by phone
             let lead = await prisma.lead.findFirst({

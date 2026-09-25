@@ -1,6 +1,6 @@
 import prisma from '../prisma/client';
 import logger from '../utils/logger';
-import aiService, { StructuredAIOutput } from '../ai/ai.service';
+import aiService, { StructuredAIOutput } from '../ai/groqService';
 import projectKnowledgeService from './projectKnowledge.service';
 import followUpService from './followUp.service';
 import whatsappService from '../whatsapp/whatsapp.service';
@@ -62,9 +62,8 @@ class ConversationService {
       });
     }
 
-    // 3. Fetch conversation history BEFORE saving the current customer message.
-    //    This ensures the latest customer message is passed explicitly once as `messageText`
-    //    and not duplicated inside the `history` array.
+    // 3. Fetch prior conversation history BEFORE saving the current incoming message
+    //    so messageText is not duplicated in Groq's message payload
     const priorMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { sentAt: 'asc' },
@@ -76,7 +75,7 @@ class ConversationService {
       sentAt: m.sentAt,
     }));
 
-    // 4. Save Customer message to DB
+    // 4. Save Customer message
     const customerMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -216,7 +215,7 @@ class ConversationService {
       },
     });
 
-    const configs = (lead.project as any).configurations || '2 & 3 BHK';
+    const configs = (lead.project as any)?.configurations || '2 & 3 BHK';
     const initialMessage =
       `Hi ${lead.name}! 👋\n\n` +
       `Thank you for your interest in ${lead.project.name}.\n\n` +

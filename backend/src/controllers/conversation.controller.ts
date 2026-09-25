@@ -80,16 +80,28 @@ export const createOrGetTestConversation = async (req: Request, res: Response) =
       });
     }
 
-    // Check for conversation
+    // Clean up any empty ghost conversations with 0 messages
+    const emptyConvs = await prisma.conversation.findMany({
+      where: { leadId: testLead.id, messages: { none: {} } },
+      select: { id: true },
+    });
+    if (emptyConvs.length > 0) {
+      await prisma.conversation.deleteMany({
+        where: { id: { in: emptyConvs.map((c) => c.id) } },
+      });
+    }
+
+    // Find newest active conversation
     let conv = await prisma.conversation.findFirst({
       where: { leadId: testLead.id },
+      orderBy: { createdAt: 'desc' },
       include: {
         messages: { orderBy: { sentAt: 'asc' } },
         analyses: { orderBy: { createdAt: 'desc' } },
       },
     });
 
-    if (!conv) {
+    if (!conv || conv.messages.length === 0) {
       const started = await conversationService.initiateOutreach(testLead.id, 'TEST');
       conv = await prisma.conversation.findUnique({
         where: { id: started.conversation.id },
@@ -100,8 +112,14 @@ export const createOrGetTestConversation = async (req: Request, res: Response) =
       });
     }
 
+    // Include project in lead
+    const fullLead = await prisma.lead.findUnique({
+      where: { id: testLead.id },
+      include: { project: true },
+    });
+
     return sendSuccess(res, {
-      lead: testLead,
+      lead: fullLead || testLead,
       conversation: conv,
     });
   } catch (err: any) {
@@ -112,7 +130,8 @@ export const createOrGetTestConversation = async (req: Request, res: Response) =
 export const resetTestConversation = async (req: Request, res: Response) => {
   try {
     const { leadId } = req.params;
-    // Delete messages and analyses for this test lead
+
+    // Delete messages, analyses, and follow-ups for this lead
     await prisma.message.deleteMany({
       where: { conversation: { leadId } },
     });
@@ -122,6 +141,12 @@ export const resetTestConversation = async (req: Request, res: Response) => {
     await prisma.followUp.deleteMany({
       where: { leadId },
     });
+
+    // Delete all conversation rows for this lead so no ghost rows remain
+    await prisma.conversation.deleteMany({
+      where: { leadId },
+    });
+
     await prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -129,13 +154,32 @@ export const resetTestConversation = async (req: Request, res: Response) => {
         interestLevel: 'UNKNOWN',
         followUpRequired: false,
         followUpReason: null,
+        configuration: null,
+        budget: null,
       },
     });
 
-    // Re-initiate conversation
-    const result = await conversationService.initiateOutreach(leadId, 'TEST');
+    // Re-initiate fresh conversation with initial outreach message
+    const started = await conversationService.initiateOutreach(leadId, 'TEST');
 
-    return sendSuccess(res, result, 'Test conversation reset successfully');
+    const conv = await prisma.conversation.findUnique({
+      where: { id: started.conversation.id },
+      include: {
+        messages: { orderBy: { sentAt: 'asc' } },
+        analyses: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      include: { project: true },
+    });
+
+    return sendSuccess(
+      res,
+      { lead, conversation: conv, initialMessage: started.initialMessage },
+      'Test conversation reset successfully'
+    );
   } catch (err: any) {
     return sendError(res, 'RESET_ERROR', err.message, 500);
   }

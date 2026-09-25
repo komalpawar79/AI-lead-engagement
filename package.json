@@ -1,0 +1,20 @@
+{
+  "name": "ai-leadengage",
+  "version": "1.0.0",
+  "description": "AI LeadEngage - Smarter Leads. Faster Sales. Real Estate AI Lead Engagement & Follow-up Extraction",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "npm run build:backend && npm run build:frontend",
+    "seed": "cd backend && npm run db:seed",
+    "db:studio": "cd backend && npx prisma studio"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
+

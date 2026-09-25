@@ -62,26 +62,45 @@ export const TestConversations: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const [optimisticCustomerMsg, setOptimisticCustomerMsg] = useState<string | null>(null);
+
   // Send message mutation
   const sendMutation = useMutation({
-    mutationFn: (text: string) =>
-      sendMessage({
+    mutationFn: (text: string) => {
+      if (!lead?.id) throw new Error('No active test lead');
+      return sendMessage({
         leadId: lead.id,
         messageText: text,
         channel: 'TEST',
-      }),
-    onSuccess: () => {
+      });
+    },
+    onMutate: (text: string) => {
+      // Optimistically display customer message immediately
+      setOptimisticCustomerMsg(text);
       setInputMessage('');
+    },
+    onSuccess: () => {
+      setOptimisticCustomerMsg(null);
       queryClient.invalidateQueries({ queryKey: ['testConversation'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
       queryClient.invalidateQueries({ queryKey: ['followUps'] });
+    },
+    onError: () => {
+      setOptimisticCustomerMsg(null);
     },
   });
 
   // Reset conversation mutation
   const resetMutation = useMutation({
-    mutationFn: () => resetTestConversation(lead.id),
-    onSuccess: () => {
+    mutationFn: () => {
+      if (!lead?.id) throw new Error('No active test lead');
+      return resetTestConversation(lead.id);
+    },
+    onSuccess: (data: any) => {
+      setOptimisticCustomerMsg(null);
+      if (data?.conversation) {
+        queryClient.setQueryData(['testConversation', selectedProjectId], data);
+      }
       queryClient.invalidateQueries({ queryKey: ['testConversation'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
       queryClient.invalidateQueries({ queryKey: ['followUps'] });
@@ -90,11 +109,12 @@ export const TestConversations: React.FC = () => {
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || sendMutation.isPending) return;
+    if (!inputMessage.trim() || sendMutation.isPending || !lead?.id) return;
     sendMutation.mutate(inputMessage.trim());
   };
 
   const handlePresetClick = (presetText: string) => {
+    if (sendMutation.isPending || !lead?.id) return;
     sendMutation.mutate(presetText);
   };
 
@@ -221,11 +241,30 @@ export const TestConversations: React.FC = () => {
                 );
               })
             )}
+            {optimisticCustomerMsg && (
+              <div className="flex justify-end">
+                <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-xs shadow-sm leading-relaxed bg-emerald-600 text-white rounded-tr-none">
+                  <div className="flex items-center justify-between space-x-4 mb-1">
+                    <span className="text-[10px] font-bold text-emerald-200">Rahul (Lead)</span>
+                    <span className="text-[10px] text-emerald-100">Just now</span>
+                  </div>
+                  <p className="whitespace-pre-wrap">{optimisticCustomerMsg}</p>
+                </div>
+              </div>
+            )}
             {sendMutation.isPending && (
               <div className="flex justify-start">
                 <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-4 py-2 text-xs flex items-center space-x-2 text-slate-500 shadow-sm">
                   <div className="w-2 h-2 rounded-full bg-orange-500 animate-bounce" />
                   <span>Aria is typing response & analyzing intent...</span>
+                </div>
+              </div>
+            )}
+            {resetMutation.isPending && (
+              <div className="flex justify-center py-6">
+                <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs flex items-center space-x-2.5 text-slate-600 shadow-sm">
+                  <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                  <span>Clearing conversation & preparing fresh AI outreach...</span>
                 </div>
               </div>
             )}

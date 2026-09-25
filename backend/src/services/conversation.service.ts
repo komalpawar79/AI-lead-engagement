@@ -62,7 +62,21 @@ class ConversationService {
       });
     }
 
-    // 3. Save Customer message
+    // 3. Fetch conversation history BEFORE saving the current customer message.
+    //    This ensures the latest customer message is passed explicitly once as `messageText`
+    //    and not duplicated inside the `history` array.
+    const priorMessages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { sentAt: 'asc' },
+    });
+
+    const history: ConversationMessageHistory[] = priorMessages.map((m) => ({
+      senderType: m.senderType as any,
+      messageText: m.messageText,
+      sentAt: m.sentAt,
+    }));
+
+    // 4. Save Customer message to DB
     const customerMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -74,18 +88,6 @@ class ConversationService {
         receivedAt: new Date(),
       },
     });
-
-    // 4. Fetch Conversation Message History
-    const allMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { sentAt: 'asc' },
-    });
-
-    const history: ConversationMessageHistory[] = allMessages.map((m) => ({
-      senderType: m.senderType as any,
-      messageText: m.messageText,
-      sentAt: m.sentAt,
-    }));
 
     // 5. Get Project Knowledge Context
     const projectContext = await projectKnowledgeService.getProjectContext(lead.projectId);
@@ -214,7 +216,12 @@ class ConversationService {
       },
     });
 
-    const initialMessage = `Hi ${lead.name} 👋 You recently showed interest in ${lead.project.name}. Are you still looking for a property?`;
+    const configs = (lead.project as any).configurations || '2 & 3 BHK';
+    const initialMessage =
+      `Hi ${lead.name}! 👋\n\n` +
+      `Thank you for your interest in ${lead.project.name}.\n\n` +
+      `It's a premium residential project featuring ${configs} apartments, luxurious amenities, and beautiful views of the Creek, City & Express Highway.\n\n` +
+      `Are you currently looking for a property?`;
 
     const aiMsg = await prisma.message.create({
       data: {

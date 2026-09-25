@@ -20,10 +20,11 @@ export const UploadLeads: React.FC = () => {
   const [validationResult, setValidationResult] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { data: projects = [] } = useQuery({
+  const { data: rawProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
   });
+  const projects = Array.isArray(rawProjects) ? rawProjects : [];
 
   // Dry run / Validation mutation
   const validateMutation = useMutation({

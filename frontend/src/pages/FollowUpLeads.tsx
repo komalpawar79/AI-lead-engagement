@@ -20,7 +20,7 @@ export const FollowUpLeads: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  const { data: followUps = [], isLoading, error } = useQuery({
+  const { data: rawFollowUps, isLoading, error } = useQuery({
     queryKey: ['followUps', statusFilter, priorityFilter],
     queryFn: () =>
       getFollowUps({
@@ -28,6 +28,8 @@ export const FollowUpLeads: React.FC = () => {
         priority: priorityFilter !== 'ALL' ? priorityFilter : undefined,
       }),
   });
+
+  const followUps = Array.isArray(rawFollowUps) ? rawFollowUps : [];
 
   const updateMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>

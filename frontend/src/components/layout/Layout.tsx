@@ -18,8 +18,10 @@ export const Layout: React.FC = () => {
     refetchInterval: 30000,
   });
 
-  const unreadCount = notifications?.filter((n) => !n.isRead).length ?? 0;
-  const followUpCount = summary?.metrics.followUpLeads ?? 4;
+  const unreadCount = Array.isArray(notifications)
+    ? notifications.filter((n) => !n.isRead).length
+    : 0;
+  const followUpCount = summary?.metrics?.followUpLeads ?? 4;
 
   return (
     <div className="h-screen w-screen bg-slate-50 flex flex-col font-sans overflow-hidden">

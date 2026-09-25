@@ -35,7 +35,20 @@ api.interceptors.request.use((config) => {
 
 // Intercept responses to unwrap { success, data }
 api.interceptors.response.use(
-  (response) => response.data?.data ?? response.data,
+  (response) => {
+    // If response data is an HTML document string (from SPA fallback rewrite or 404 handler), reject it
+    if (
+      typeof response.data === 'string' &&
+      (response.data.includes('<!DOCTYPE html>') ||
+        response.data.includes('<!doctype html>') ||
+        response.data.includes('<html'))
+    ) {
+      return Promise.reject(
+        new Error('API endpoint returned HTML document instead of JSON. Backend service may be unreachable.')
+      );
+    }
+    return response.data?.data ?? response.data;
+  },
   (error) => {
     const message =
       error.response?.data?.error?.message ||

@@ -11,10 +11,12 @@ import { NotificationItem } from '../types';
 export const Notifications: React.FC = () => {
   const queryClient = useQueryClient();
 
-  const { data: notifications = [], isLoading } = useQuery({
+  const { data: rawNotifications, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: getNotifications,
   });
+
+  const notifications = Array.isArray(rawNotifications) ? rawNotifications : [];
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => markNotificationAsRead(id),

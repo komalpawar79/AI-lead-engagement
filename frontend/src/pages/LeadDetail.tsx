@@ -38,9 +38,9 @@ export const LeadDetail: React.FC = () => {
     );
   }
 
-  const latestConversation = lead.conversations?.[0];
-  const messages = latestConversation?.messages || [];
-  const latestAnalysis = lead.analyses?.[0];
+  const latestConversation = lead?.conversations?.[0];
+  const messages = Array.isArray(latestConversation?.messages) ? latestConversation.messages : [];
+  const latestAnalysis = lead?.analyses?.[0];
 
   return (
     <div className="space-y-6">

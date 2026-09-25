@@ -28,10 +28,11 @@ export const TestConversations: React.FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { data: projects = [] } = useQuery({
+  const { data: rawProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
   });
+  const projects = Array.isArray(rawProjects) ? rawProjects : [];
 
   // Automatically select first project once loaded
   useEffect(() => {
@@ -54,7 +55,7 @@ export const TestConversations: React.FC = () => {
 
   const lead = testData?.lead;
   const conversation = testData?.conversation;
-  const messages = conversation?.messages || [];
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
   const latestAnalysis = conversation?.analyses?.[0];
 
   // Auto-scroll to bottom of messages

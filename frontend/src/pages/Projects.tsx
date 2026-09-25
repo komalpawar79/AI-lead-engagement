@@ -182,10 +182,11 @@ export const Projects: React.FC = () => {
   const [qaAnswer, setQaAnswer] = useState('');
 
   // Queries
-  const { data: projects = [], isLoading } = useQuery({
+  const { data: rawProjects, isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
   });
+  const projects = Array.isArray(rawProjects) ? rawProjects : [];
 
   // Mutations
   const createMutation = useMutation({

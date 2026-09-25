@@ -28,15 +28,18 @@ export const Campaigns: React.FC = () => {
   const [newCampaignName, setNewCampaignName] = useState('');
   const [newProjectId, setNewProjectId] = useState('');
 
-  const { data: campaigns = [], isLoading } = useQuery({
+  const { data: rawCampaigns, isLoading } = useQuery({
     queryKey: ['campaigns'],
     queryFn: getCampaigns,
   });
 
-  const { data: projects = [] } = useQuery({
+  const { data: rawProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
   });
+
+  const campaigns = Array.isArray(rawCampaigns) ? rawCampaigns : [];
+  const projects = Array.isArray(rawProjects) ? rawProjects : [];
 
   const createMutation = useMutation({
     mutationFn: () => createCampaign({ name: newCampaignName, projectId: newProjectId }),

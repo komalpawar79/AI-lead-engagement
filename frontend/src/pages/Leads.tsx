@@ -22,10 +22,11 @@ export const Leads: React.FC = () => {
   const [interestFilter, setInterestFilter] = useState('ALL');
   const [page, setPage] = useState(1);
 
-  const { data: projects = [] } = useQuery({
+  const { data: rawProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
   });
+  const projects = Array.isArray(rawProjects) ? rawProjects : [];
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['leads', searchTerm, statusFilter, projectFilter, interestFilter, page],
@@ -40,7 +41,7 @@ export const Leads: React.FC = () => {
       }),
   });
 
-  const leads = data?.leads || [];
+  const leads = Array.isArray(data?.leads) ? data.leads : [];
   const pagination = data?.pagination || { total: 0, totalPages: 1 };
 
   return (

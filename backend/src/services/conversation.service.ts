@@ -62,20 +62,7 @@ class ConversationService {
       });
     }
 
-    // 3. Fetch prior conversation history BEFORE saving the current incoming message
-    //    so messageText is not duplicated in Groq's message payload
-    const priorMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { sentAt: 'asc' },
-    });
-
-    const history: ConversationMessageHistory[] = priorMessages.map((m) => ({
-      senderType: m.senderType as any,
-      messageText: m.messageText,
-      sentAt: m.sentAt,
-    }));
-
-    // 4. Save Customer message
+    // 3. Save Customer message
     const customerMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -87,6 +74,18 @@ class ConversationService {
         receivedAt: new Date(),
       },
     });
+
+    // 4. Fetch Conversation Message History
+    const allMessages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { sentAt: 'asc' },
+    });
+
+    const history: ConversationMessageHistory[] = allMessages.map((m) => ({
+      senderType: m.senderType as any,
+      messageText: m.messageText,
+      sentAt: m.sentAt,
+    }));
 
     // 5. Get Project Knowledge Context
     const projectContext = await projectKnowledgeService.getProjectContext(lead.projectId);

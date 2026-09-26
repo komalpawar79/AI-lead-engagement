@@ -1,7 +1,6 @@
 import logger from '../utils/logger';
 import { ProjectContext, ConversationMessageHistory } from './prompts';
 import groqService from './groqService';
-import dateTimeResolver, { ResolvedDateTime } from '../utils/dateTimeResolver';
 
 export type ConversationIntent =
   | 'NEW_QUESTION'
@@ -50,12 +49,9 @@ export interface ConversationState {
   actionType?: 'CALLBACK' | 'SITE_VISIT' | 'NONE' | null;
   actionStatus?: 'NONE' | 'PENDING_TIME' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | null;
   actionTime?: string | null;
-  actionScheduledAt?: Date | null;
-  actionTimezone?: string | null;
   actionConfirmed?: boolean;
   knownConfiguration?: string | null;
   knownBudget?: number | null;
-  referenceDate?: Date;
 }
 
 export interface EngineDecision {
@@ -71,8 +67,6 @@ export interface EngineDecision {
       | 'NO_REPLY'
       | 'ASK_QUALIFYING';
     time?: string | null;
-    scheduledAt?: Date | null;
-    timezone?: string;
     reason?: string;
     details?: any;
   };
@@ -86,8 +80,6 @@ export interface EngineDecision {
     actionType: 'CALLBACK' | 'SITE_VISIT' | 'NONE';
     actionStatus: 'NONE' | 'PENDING_TIME' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
     actionTime: string | null;
-    actionScheduledAt?: Date | null;
-    actionTimezone?: string;
     actionConfirmed: boolean;
   };
   extractedData: {
@@ -125,18 +117,8 @@ export class ConversationEngine {
     );
     const existingTime = state.actionTime || this.findPreviouslyConfirmedTime(history);
 
-    // Timezone & reference date resolution
-    const tz = state.actionTimezone || 'Asia/Kolkata';
-    const refDate = state.referenceDate || new Date();
-    const resolvedTime = dateTimeResolver.resolve(rawText, {
-      referenceDate: refDate,
-      timezone: tz,
-      existingScheduledDate: state.actionScheduledAt || null,
-      existingTimeString: existingTime || null,
-    });
-
     // 2. Classify Intent in Full Context
-    const intent = this.classifyIntent(textLower, rawText, pendingQuestion, wasConfirmed, history, resolvedTime);
+    const intent = this.classifyIntent(textLower, rawText, pendingQuestion, wasConfirmed, history);
     logger.info(
       {
         leadName: state.leadName,
@@ -144,7 +126,6 @@ export class ConversationEngine {
         pendingQuestion,
         wasConfirmed,
         existingTime,
-        resolvedTime: resolvedTime.isValid ? resolvedTime.displayString : null,
       },
       'Context-aware intent classified'
     );
@@ -169,8 +150,6 @@ export class ConversationEngine {
           actionType: 'NONE',
           actionStatus: 'CANCELLED',
           actionTime: null,
-          actionScheduledAt: null,
-          actionTimezone: tz,
           actionConfirmed: false,
         },
         extractedData: {},
@@ -182,37 +161,23 @@ export class ConversationEngine {
     }
 
     // ------------------------------------------------------------------------
-    // SCENARIO D: CUSTOMER CHANGES CALLBACK TIME AFTER CONFIRMATION (OR CORRECTIONS)
+    // SCENARIO D: CUSTOMER CHANGES CALLBACK TIME AFTER CONFIRMATION
     // ------------------------------------------------------------------------
     const detectedTime = this.extractTimePhrase(rawText);
-    const isCorrectionPhrase =
-      /\b(i said|i meant|meant|not today|actually|instead of today|maine kal bola|kal bola tha|kal bola)\b/i.test(
-        textLower
-      );
-
     const isTimeChangeRequest =
       wasConfirmed &&
-      (isCorrectionPhrase ||
-        resolvedTime.isCorrection ||
-        (resolvedTime.isValid && resolvedTime.displayString.toLowerCase() !== (existingTime || '').toLowerCase()) ||
-        Boolean(detectedTime && detectedTime.toLowerCase() !== (existingTime || '').toLowerCase()) ||
+      detectedTime &&
+      (detectedTime.toLowerCase() !== (existingTime || '').toLowerCase() ||
         /\b(actually|change|make it|instead|reschedule|shift|kal|today|tomorrow)\b/i.test(textLower));
 
-    if (isTimeChangeRequest && (resolvedTime.isValid || detectedTime)) {
-      const normalizedTime = resolvedTime.isValid
-        ? resolvedTime.displayString
-        : this.formatTimeDisplay(detectedTime!);
-      const scheduledUtc = resolvedTime.isValid ? resolvedTime.jsDate : (state.actionScheduledAt || null);
-      const scheduledTz = resolvedTime.isValid ? resolvedTime.timezone : tz;
-
-      const replyMessage = `My apologies, ${state.leadName}! I have updated your callback to ${normalizedTime}.`;
+    if (isTimeChangeRequest && detectedTime) {
+      const normalizedTime = this.formatTimeDisplay(detectedTime);
+      const replyMessage = `Sure, I have updated the time. Our team will call you ${normalizedTime} instead.`;
       return {
         intent: 'CALLBACK_CONFIRMATION',
         proposedAction: {
           type: 'UPDATE_CALLBACK_TIME',
           time: normalizedTime,
-          scheduledAt: scheduledUtc,
-          timezone: scheduledTz,
           reason: `Customer rescheduled callback to ${normalizedTime}`,
         },
         shouldSendReply: true,
@@ -225,8 +190,6 @@ export class ConversationEngine {
           actionType: 'CALLBACK',
           actionStatus: 'CONFIRMED',
           actionTime: normalizedTime,
-          actionScheduledAt: scheduledUtc,
-          actionTimezone: scheduledTz,
           actionConfirmed: true,
         },
         extractedData: { actionTime: normalizedTime },
@@ -266,8 +229,6 @@ export class ConversationEngine {
             actionType: 'CALLBACK',
             actionStatus: 'CONFIRMED',
             actionTime: existingTime,
-            actionScheduledAt: state.actionScheduledAt || null,
-            actionTimezone: state.actionTimezone || tz,
             actionConfirmed: true,
           },
           extractedData: { actionTime: existingTime },
@@ -288,13 +249,11 @@ export class ConversationEngine {
         updatedState: {
           status: 'IDLE',
           lastCustomerIntent: 'ACKNOWLEDGMENT',
-          lastAssistantAction: (state.lastAssistantAction as AssistantActionType) || 'ACKNOWLEDGED_CLOSING',
+          lastAssistantAction: state.lastAssistantAction as AssistantActionType || 'ACKNOWLEDGED_CLOSING',
           pendingQuestion: 'NONE',
           actionType: 'CALLBACK',
           actionStatus: 'CONFIRMED',
           actionTime: existingTime,
-          actionScheduledAt: state.actionScheduledAt || null,
-          actionTimezone: state.actionTimezone || tz,
           actionConfirmed: true,
         },
         extractedData: { actionTime: existingTime },
@@ -331,8 +290,6 @@ export class ConversationEngine {
           actionType: state.actionType || 'NONE',
           actionStatus: state.actionStatus || 'NONE',
           actionTime: state.actionTime || null,
-          actionScheduledAt: state.actionScheduledAt || null,
-          actionTimezone: state.actionTimezone || tz,
           actionConfirmed: state.actionConfirmed || false,
         },
         extractedData: {
@@ -374,8 +331,6 @@ export class ConversationEngine {
           actionType: 'CALLBACK',
           actionStatus: 'PENDING_TIME',
           actionTime: null,
-          actionScheduledAt: null,
-          actionTimezone: tz,
           actionConfirmed: false,
         },
         extractedData: {},
@@ -387,31 +342,19 @@ export class ConversationEngine {
     }
 
     // ------------------------------------------------------------------------
-    // CUSTOMER PROVIDES CALLBACK TIME (e.g. "Today around 6:30 PM", "10:30 tomorrow mornig")
+    // CUSTOMER PROVIDES CALLBACK TIME (e.g. "Today around 6:30 PM")
     // Aria: "Our team will call you. What is a convenient time?"
-    // Customer: "10:30 tomorrow mornig."
-    // Aria: "Sure, our team will call you tomorrow at 10:30 AM."
+    // Customer: "Today around 6:30 PM."
+    // Aria: "Sure, our team will call you today at 6:30 PM."
     // ------------------------------------------------------------------------
-    if (
-      pendingQuestion === 'CALLBACK_TIME' ||
-      (intent === 'CALLBACK_CONFIRMATION' && (resolvedTime.isValid || detectedTime))
-    ) {
-      const timeToSchedule = resolvedTime.isValid
-        ? resolvedTime.displayString
-        : detectedTime
-        ? this.formatTimeDisplay(detectedTime)
-        : 'at your preferred time';
-      const scheduledUtc = resolvedTime.isValid ? resolvedTime.jsDate : null;
-      const scheduledTz = resolvedTime.isValid ? resolvedTime.timezone : tz;
-
+    if (pendingQuestion === 'CALLBACK_TIME' || (intent === 'CALLBACK_CONFIRMATION' && detectedTime)) {
+      const timeToSchedule = detectedTime ? this.formatTimeDisplay(detectedTime) : 'at your preferred time';
       const replyMessage = `Sure, our team will call you ${timeToSchedule}.`;
       return {
         intent: 'CALLBACK_CONFIRMATION',
         proposedAction: {
           type: 'SCHEDULE_CALLBACK',
           time: timeToSchedule,
-          scheduledAt: scheduledUtc,
-          timezone: scheduledTz,
           reason: `Customer scheduled callback for ${timeToSchedule}`,
         },
         shouldSendReply: true,
@@ -424,8 +367,6 @@ export class ConversationEngine {
           actionType: 'CALLBACK',
           actionStatus: 'CONFIRMED',
           actionTime: timeToSchedule,
-          actionScheduledAt: scheduledUtc,
-          actionTimezone: scheduledTz,
           actionConfirmed: true,
         },
         extractedData: { actionTime: timeToSchedule },
@@ -459,8 +400,6 @@ export class ConversationEngine {
           actionType: state.actionType || 'NONE',
           actionStatus: state.actionStatus || 'NONE',
           actionTime: state.actionTime || null,
-          actionScheduledAt: state.actionScheduledAt || null,
-          actionTimezone: state.actionTimezone || tz,
           actionConfirmed: state.actionConfirmed || false,
         },
         extractedData: {
@@ -500,8 +439,6 @@ export class ConversationEngine {
           actionType: state.actionType || 'NONE',
           actionStatus: state.actionStatus || 'NONE',
           actionTime: state.actionTime || null,
-          actionScheduledAt: state.actionScheduledAt || null,
-          actionTimezone: state.actionTimezone || tz,
           actionConfirmed: state.actionConfirmed || false,
         },
         extractedData: {
@@ -591,8 +528,7 @@ export class ConversationEngine {
     rawText: string,
     pendingQuestion: PendingQuestionType,
     wasConfirmed: boolean,
-    history: ConversationMessageHistory[],
-    resolvedTime?: ResolvedDateTime
+    history: ConversationMessageHistory[]
   ): ConversationIntent {
     // 1. Opt-out checks
     if (
@@ -611,29 +547,21 @@ export class ConversationEngine {
     }
 
     if (pendingQuestion === 'CALLBACK_TIME') {
-      if ((resolvedTime && resolvedTime.isValid) || this.extractTimePhrase(rawText)) {
+      const timeFound = this.extractTimePhrase(rawText);
+      if (timeFound) {
         return 'CALLBACK_CONFIRMATION';
       }
     }
 
     // 3. Action Already Confirmed Checks
     if (wasConfirmed) {
-      const isQuestionOrTopic =
-        textLower.includes('?') ||
-        /\b(price|pricing|cost|rate|location|address|map|amenities|brochure|link|possession|what|where|how|which)\b/i.test(
-          textLower
-        );
-
-      const isCorrectionPhrase =
-        /\b(i said|i meant|meant|not today|actually|instead of today|maine kal bola|kal bola tha|kal bola|change|make it|instead|reschedule|shift)\b/i.test(
-          textLower
-        );
-
-      const hasResolvedValidTime = Boolean(
-        resolvedTime && (resolvedTime.isValid || resolvedTime.isCorrection)
-      );
-
-      if ((isCorrectionPhrase || hasResolvedValidTime) && !isQuestionOrTopic) {
+      // Check for time modification first (e.g. "Actually call at 7 PM", "Make it 7:00 PM", "7:00 PM")
+      const timeFound = this.extractTimePhrase(rawText);
+      if (
+        timeFound &&
+        (/\b(actually|change|make it|instead|reschedule|shift|kal|today|tomorrow)\b/i.test(textLower) ||
+          /^\s*\d{1,2}(:\d{2})?\s*(?:am|pm)?\s*$/i.test(rawText.trim()))
+      ) {
         return 'CALLBACK_CONFIRMATION';
       }
 
@@ -642,11 +570,7 @@ export class ConversationEngine {
         return 'ACKNOWLEDGMENT';
       }
 
-      if (
-        /\b(ok|okay|k|great|good|fine|cool|understood|got it|theek hai|thik hai|sahi hai|perfect|done|super|awesome|👍|👌)\b/i.test(
-          textLower
-        )
-      ) {
+      if (/\b(ok|okay|k|great|good|fine|cool|understood|got it|theek hai|thik hai|sahi hai|perfect|done|super|awesome|👍|👌)\b/i.test(textLower)) {
         return 'ACKNOWLEDGMENT';
       }
 
@@ -818,8 +742,8 @@ export class ConversationEngine {
    */
   private formatTimeDisplay(timeStr: string): string {
     let clean = timeStr.trim();
-    if (!/today|tomorrow|tommorow|kal|aaj/i.test(clean)) {
-      return `at ${clean}`;
+    if (!/today|tomorrow|kal|aaj/i.test(clean)) {
+      return `today at ${clean}`;
     }
     return clean;
   }

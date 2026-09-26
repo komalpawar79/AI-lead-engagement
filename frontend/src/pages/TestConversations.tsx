@@ -13,6 +13,8 @@ import {
   XCircle,
   PhoneCall,
   Calendar,
+  MapPin,
+  ExternalLink,
 } from 'lucide-react';
 import {
   createOrGetTestConversation,
@@ -21,6 +23,65 @@ import {
   getProjects,
 } from '../services/api';
 import { StatusBadge } from '../components/common/StatusBadge';
+
+const renderFormattedMessage = (text: string, isAI: boolean) => {
+  if (!text) return null;
+
+  // Regex to match URLs including http(s):// and google.com/maps or maps.google.com or maps.app.goo.gl
+  const urlRegex = /(https?:\/\/[^\s]+|(?:(?:https?:\/\/)?(?:www\.)?(?:google\.com\/maps[^\s]*|maps\.google\.com[^\s]*|maps\.app\.goo\.gl[^\s]*)))/gi;
+  const parts = text.split(urlRegex);
+
+  return (
+    <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed">
+      {parts.map((part, idx) => {
+        if (!part) return null;
+        if (
+          part.match(/^https?:\/\//i) ||
+          part.match(/^(?:https?:\/\/)?(?:www\.)?(?:google\.com\/maps|maps\.google\.com|maps\.app\.goo\.gl)/i)
+        ) {
+          const href = part.startsWith('http://') || part.startsWith('https://') ? part : `https://${part}`;
+          const isMap = /google\.com\/maps|maps\.google|maps\.app\.goo\.gl/i.test(part);
+
+          if (isMap) {
+            return (
+              <span key={idx} className="block my-1.5">
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs transition-colors shadow-xs max-w-full ${
+                    isAI
+                      ? 'bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200'
+                      : 'bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-500'
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <span className="font-semibold">Open Google Maps Location</span>
+                  <ExternalLink className="w-3 h-3 opacity-70 shrink-0 ml-0.5" />
+                </a>
+              </span>
+            );
+          }
+
+          return (
+            <a
+              key={idx}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`underline font-medium break-all ${
+                isAI ? 'text-blue-600 hover:text-blue-800' : 'text-emerald-100 hover:text-white'
+              }`}
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={idx}>{part}</span>;
+      })}
+    </div>
+  );
+};
 
 export const TestConversations: React.FC = () => {
   const queryClient = useQueryClient();
@@ -206,7 +267,7 @@ export const TestConversations: React.FC = () => {
                     className={`flex ${isAI ? 'justify-start' : 'justify-end'}`}
                   >
                     <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs shadow-sm leading-relaxed ${
+                      className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-sm leading-relaxed overflow-hidden break-words [overflow-wrap:anywhere] ${
                         isAI
                           ? 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-none'
                           : 'bg-emerald-600 text-white rounded-tr-none'
@@ -231,7 +292,7 @@ export const TestConversations: React.FC = () => {
                           })}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap">{msg.messageText}</p>
+                      {renderFormattedMessage(msg.messageText, isAI)}
                       <div className="flex justify-end mt-1">
                         <CheckCheck
                           className={`w-3 h-3 ${isAI ? 'text-blue-500' : 'text-emerald-200'}`}
@@ -244,12 +305,12 @@ export const TestConversations: React.FC = () => {
             )}
             {optimisticCustomerMsg && (
               <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-2xl px-4 py-2.5 text-xs shadow-sm leading-relaxed bg-emerald-600 text-white rounded-tr-none">
+                <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-sm leading-relaxed overflow-hidden break-words [overflow-wrap:anywhere] bg-emerald-600 text-white rounded-tr-none">
                   <div className="flex items-center justify-between space-x-4 mb-1">
                     <span className="text-[10px] font-bold text-emerald-200">Rahul (Lead)</span>
                     <span className="text-[10px] text-emerald-100">Just now</span>
                   </div>
-                  <p className="whitespace-pre-wrap">{optimisticCustomerMsg}</p>
+                  {renderFormattedMessage(optimisticCustomerMsg, false)}
                 </div>
               </div>
             )}

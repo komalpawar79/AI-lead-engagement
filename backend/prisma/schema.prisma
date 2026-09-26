@@ -45,6 +45,7 @@ model Project {
   knowledge      ProjectKnowledge[]
   campaigns      Campaign[]
   leads          Lead[]
+  conversations  Conversation[]
 
   @@map("projects")
 }
@@ -139,12 +140,14 @@ model Lead {
 }
 
 model Conversation {
-  id            String       @id @default(uuid())
-  leadId        String       @map("lead_id")
-  lead          Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  campaignId    String?      @map("campaign_id")
-  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  channel       String       @default("WHATSAPP") // WHATSAPP, TEST
+  id                  String       @id @default(uuid())
+  leadId              String       @map("lead_id")
+  lead                Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId          String?      @map("campaign_id")
+  campaign            Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  projectId           String?      @map("project_id")
+  project             Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  channel             String       @default("WHATSAPP") // WHATSAPP, TEST
   status              String       @default("ACTIVE") // ACTIVE, IDLE, CLOSED, PAUSED
   lastCustomerIntent  String?      @map("last_customer_intent")
   lastAssistantAction String?      @map("last_assistant_action")
@@ -152,7 +155,12 @@ model Conversation {
   actionType          String?      @map("action_type") // CALLBACK, SITE_VISIT, NONE
   actionStatus        String?      @map("action_status") // NONE, PENDING_TIME, CONFIRMED, COMPLETED, CANCELLED
   actionTime          String?      @map("action_time")
+  actionScheduledAt   DateTime?    @map("action_scheduled_at")
+  actionTimezone      String?      @default("Asia/Kolkata") @map("action_timezone")
   actionConfirmed     Boolean      @default(false) @map("action_confirmed")
+  summary             String?      @map("summary") // Compact rolling conversation summary for long chats
+  lastSummarizedMessageId String?  @map("last_summarized_message_id")
+  summaryUpdatedAt    DateTime?    @map("summary_updated_at")
   metadata            String?      @map("metadata")
   startedAt           DateTime     @default(now()) @map("started_at")
   lastMessageAt       DateTime     @default(now()) @map("last_message_at")
@@ -163,6 +171,9 @@ model Conversation {
   analyses            AIAnalysis[]
   followUps           FollowUp[]
 
+  @@index([leadId])
+  @@index([projectId])
+  @@index([status, lastMessageAt])
   @@map("conversations")
 }
 
@@ -173,13 +184,15 @@ model Message {
   senderType        String       @map("sender_type") // AI, CUSTOMER, SYSTEM
   messageText       String       @map("message_text")
   messageType       String       @default("TEXT") @map("message_type") // TEXT, IMAGE, DOCUMENT, SYSTEM
-  externalMessageId String?      @map("external_message_id") // Meta WhatsApp Message ID
+  externalMessageId String?      @unique @map("external_message_id") // Meta WhatsApp Message ID (Unique constraint enforces DB-level idempotency)
   deliveryStatus    String       @default("SENT") @map("delivery_status") // SENT, DELIVERED, READ, FAILED
   sentAt            DateTime     @default(now()) @map("sent_at")
   receivedAt        DateTime?    @map("received_at")
   createdAt         DateTime     @default(now()) @map("created_at")
 
-  @@index([externalMessageId])
+  @@index([conversationId, sentAt])
+  @@index([deliveryStatus])
+  @@index([sentAt])
   @@map("messages")
 }
 
@@ -216,6 +229,8 @@ model FollowUp {
   reason         String
   priority       String       @default("MEDIUM") // LOW, MEDIUM, HIGH
   status         String       @default("PENDING") // PENDING, EXPORTED, COMPLETED
+  scheduledAt    DateTime?    @map("scheduled_at")
+  timezone       String?      @default("Asia/Kolkata") @map("timezone")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 

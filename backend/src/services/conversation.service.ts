@@ -7,6 +7,7 @@ import conversationEngine, {
 import projectKnowledgeService from './projectKnowledge.service';
 import followUpService from './followUp.service';
 import whatsappService from '../whatsapp/whatsapp.service';
+import conversationMemoryService from './conversationMemory.service';
 import { ConversationMessageHistory } from '../ai/prompts';
 
 export interface HandleMessageInput {
@@ -88,36 +89,59 @@ class ConversationService {
         data: {
           leadId: lead.id,
           campaignId: lead.campaignId,
+          projectId: lead.projectId,
           channel,
           status: 'ACTIVE',
         },
       });
+    } else if (!conversation.projectId && lead.projectId) {
+      // Ensure conversation is linked directly to project
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { projectId: lead.projectId },
+      });
     }
 
-    // 4. Save Customer message to DB
-    const customerMsg = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderType: 'CUSTOMER',
-        messageText,
-        externalMessageId,
-        deliveryStatus: 'READ',
-        sentAt: new Date(),
-        receivedAt: new Date(),
-      },
-    });
+    // 4. Save Customer message to DB (Guarded by DB-level unique constraint on externalMessageId)
+    let customerMsg: any;
+    try {
+      customerMsg = await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: 'CUSTOMER',
+          messageText,
+          externalMessageId,
+          deliveryStatus: 'READ',
+          sentAt: new Date(),
+          receivedAt: new Date(),
+        },
+      });
+    } catch (createErr: any) {
+      // P2002: Prisma unique constraint violation on externalMessageId
+      if (createErr.code === 'P2002' && externalMessageId) {
+        logger.warn(
+          { externalMessageId, leadId },
+          'Duplicate incoming message caught by unique DB constraint. Suppressing duplicate reply.'
+        );
+        const existing = await prisma.message.findUnique({
+          where: { externalMessageId },
+        });
+        return {
+          conversationId: conversation.id,
+          leadId,
+          customerMessage: existing,
+          aiMessage: null,
+          analysis: null,
+          isDuplicate: true,
+        };
+      }
+      throw createErr;
+    }
 
-    // 5. Fetch full conversation message history
-    const allMessages = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { sentAt: 'asc' },
-    });
-
-    const history: ConversationMessageHistory[] = allMessages.map((m) => ({
-      senderType: m.senderType as any,
-      messageText: m.messageText,
-      sentAt: m.sentAt,
-    }));
+    // 5. Fetch optimized sliding window of recent messages + rolling summary
+    const memoryResult = await conversationMemoryService.getConversationWindow(conversation.id);
+    const history: ConversationMessageHistory[] = memoryResult.history;
+    const conversationSummary = memoryResult.summary;
 
     // 6. Get Project Knowledge Context
     const projectContext = await projectKnowledgeService.getProjectContext(lead.projectId);
@@ -147,7 +171,8 @@ class ConversationService {
       conversationState,
       messageText,
       history,
-      projectContext
+      projectContext,
+      conversationSummary
     );
 
     // 8. Backend Action Validation & Persistence (Execute actions BEFORE confirming)
@@ -271,6 +296,14 @@ class ConversationService {
       if (channel === 'WHATSAPP') {
         whatsappService
           .sendTextMessage(lead.phone, decision.replyMessage)
+          .then(async (sendRes) => {
+            if (sendRes.success && sendRes.messageId) {
+              await prisma.message.update({
+                where: { id: aiMsg.id },
+                data: { externalMessageId: sendRes.messageId, deliveryStatus: 'SENT' },
+              });
+            }
+          })
           .catch((err: any) => logger.error({ err }, 'Outbound WhatsApp delivery failed'));
       }
     } else {
@@ -330,6 +363,7 @@ class ConversationService {
       data: {
         leadId: lead.id,
         campaignId: lead.campaignId,
+        projectId: lead.projectId,
         channel,
         status: 'ACTIVE',
         lastAssistantAction: 'ASKED_PROPERTY_INTEREST',
@@ -349,7 +383,7 @@ class ConversationService {
         conversationId: conversation.id,
         senderType: 'AI',
         messageText: initialMessage,
-        deliveryStatus: 'DELIVERED',
+        deliveryStatus: channel === 'WHATSAPP' ? 'SENT' : 'DELIVERED',
       },
     });
 
@@ -359,9 +393,19 @@ class ConversationService {
     });
 
     if (channel === 'WHATSAPP') {
-      whatsappService.sendTextMessage(lead.phone, initialMessage).catch((err: any) =>
-        logger.error({ err }, 'Failed sending initial WhatsApp outreach')
-      );
+      whatsappService
+        .sendTextMessage(lead.phone, initialMessage)
+        .then(async (res) => {
+          if (res.success && res.messageId) {
+            await prisma.message.update({
+              where: { id: aiMsg.id },
+              data: { externalMessageId: res.messageId, deliveryStatus: 'SENT' },
+            });
+          }
+        })
+        .catch((err: any) =>
+          logger.error({ err }, 'Failed sending initial WhatsApp outreach')
+        );
     }
 
     return { conversation, initialMessage: aiMsg };

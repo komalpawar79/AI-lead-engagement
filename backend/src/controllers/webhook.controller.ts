@@ -29,12 +29,33 @@ export const handleWhatsAppWebhook = async (req: Request, res: Response) => {
     // 1. Immediately acknowledge webhook with 200 OK to prevent Meta retries
     res.status(200).send('EVENT_RECEIVED');
 
+    // 2. Handle Message Delivery Status Updates (SENT, DELIVERED, READ, FAILED)
+    const statusEvents = whatsappService.parseInboundStatuses(req.body);
+    if (statusEvents && statusEvents.length > 0) {
+      for (const st of statusEvents) {
+        try {
+          const updated = await prisma.message.updateMany({
+            where: { externalMessageId: st.messageId },
+            data: { deliveryStatus: st.status },
+          });
+          if (updated.count > 0) {
+            logger.info(
+              { messageId: st.messageId, status: st.status },
+              'Updated WhatsApp message delivery status'
+            );
+          }
+        } catch (stErr) {
+          logger.warn({ stErr, messageId: st.messageId }, 'Failed to update message delivery status');
+        }
+      }
+    }
+
     const events = whatsappService.parseInboundWebhook(req.body);
     if (!events || events.length === 0) {
       return;
     }
 
-    // 2. Asynchronously process each message through the queue
+    // 3. Asynchronously process each message through the queue
     for (const ev of events) {
       await queueService.addJob(
         'ai-analysis',
@@ -44,7 +65,7 @@ export const handleWhatsAppWebhook = async (req: Request, res: Response) => {
           try {
             // Deduplicate incoming webhook messages immediately
             if (eventData.messageId) {
-              const existingMsg = await prisma.message.findFirst({
+              const existingMsg = await prisma.message.findUnique({
                 where: { externalMessageId: eventData.messageId },
               });
               if (existingMsg) {
@@ -80,7 +101,7 @@ export const handleWhatsAppWebhook = async (req: Request, res: Response) => {
               });
             }
 
-            // Route to Conversation Service
+            // Route to Conversation Service (with database-level unique constraint guard)
             await conversationService.handleIncomingMessage({
               leadId: lead.id,
               messageText: eventData.messageText,

@@ -102,7 +102,8 @@ export class ConversationEngine {
     state: ConversationState,
     incomingMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext
+    project: ProjectContext,
+    conversationSummary?: string | null
   ): Promise<EngineDecision> {
     const rawText = incomingMessage.trim();
     const textLower = rawText.toLowerCase();
@@ -274,7 +275,8 @@ export class ConversationEngine {
         rawText,
         state,
         project,
-        history
+        history,
+        conversationSummary
       );
 
       return {
@@ -635,7 +637,8 @@ export class ConversationEngine {
     question: string,
     state: ConversationState,
     project: ProjectContext,
-    history: ConversationMessageHistory[]
+    history: ConversationMessageHistory[],
+    conversationSummary?: string | null
   ): Promise<string> {
     const qLower = question.toLowerCase();
 
@@ -700,7 +703,8 @@ export class ConversationEngine {
         state.leadName,
         question,
         history,
-        project
+        project,
+        conversationSummary
       );
       if (groqResult && groqResult.nextSuggestedMessage) {
         return groqResult.nextSuggestedMessage;

@@ -102,7 +102,8 @@ export class ConversationEngine {
     state: ConversationState,
     incomingMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext
+    project: ProjectContext,
+    conversationSummary?: string | null
   ): Promise<EngineDecision> {
     const rawText = incomingMessage.trim();
     const textLower = rawText.toLowerCase();

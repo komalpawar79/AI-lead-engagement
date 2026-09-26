@@ -10,7 +10,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "ts-node-dev src/prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "cleanup:retention": "ts-node-dev --transpile-only src/scripts/cleanup-retention.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

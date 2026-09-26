@@ -8,7 +8,8 @@ export type JobType =
   | 'message-retry'
   | 'ai-analysis'
   | 'ai-response'
-  | 'excel-export';
+  | 'excel-export'
+  | 'retention-cleanup';
 
 export interface EnqueueOptions {
   attempts?: number;

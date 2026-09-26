@@ -102,8 +102,7 @@ export class ConversationEngine {
     state: ConversationState,
     incomingMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext,
-    conversationSummary?: string | null
+    project: ProjectContext
   ): Promise<EngineDecision> {
     const rawText = incomingMessage.trim();
     const textLower = rawText.toLowerCase();
@@ -202,66 +201,84 @@ export class ConversationEngine {
     }
 
     // ------------------------------------------------------------------------
-    // SCENARIO A: COMPLETED CONFIRMATION -> ACKNOWLEDGMENT / CLOSING / IDLE
-    // Rule 1: Never repeat completed callback on "Thank you" or "Ok".
-    // Rule 2: Respond briefly to thanks ("You're welcome, Rahul! 😊").
-    // Rule 3 & 4: Allow conversation to become idle; no-reply if already closed.
     // ------------------------------------------------------------------------
-    if (wasConfirmed && (intent === 'ACKNOWLEDGMENT' || intent === 'CONVERSATION_CLOSING')) {
-      const isThanks = /\b(thank|thanks|thx|dhanyawad|shukriya)\b/i.test(textLower);
+    // SCENARIO A: ACKNOWLEDGMENT / CONVERSATION CLOSING
+    // (Customer says: "ohk", "ok", "thanks", "thank you", "theek hai", "understood", "got it")
+    // ------------------------------------------------------------------------
+    if (intent === 'ACKNOWLEDGMENT' || intent === 'CONVERSATION_CLOSING') {
+      const isThanks = /\b(thank|thanks|thx|dhanyawad|dhanyavad|shukriya)\b/i.test(textLower);
       const alreadyPolitelyClosed =
         state.lastAssistantAction === 'ACKNOWLEDGED_CLOSING' ||
         state.status === 'IDLE' ||
         state.status === 'CLOSED';
 
-      if (isThanks && !alreadyPolitelyClosed) {
-        // Customer says "Thank you" after confirmation -> Aria says "You're welcome, Rahul! 😊"
-        const replyMessage = `You're welcome, ${state.leadName}! 😊`;
+      // 1. If conversation has ALREADY been politely closed and customer sends another "ok" / "👍"
+      if (alreadyPolitelyClosed) {
         return {
           intent: 'ACKNOWLEDGMENT',
-          proposedAction: { type: 'POLITE_CLOSING' },
-          shouldSendReply: true,
-          replyMessage,
+          proposedAction: { type: 'NO_REPLY' },
+          shouldSendReply: false,
+          replyMessage: null,
           updatedState: {
             status: 'IDLE',
             lastCustomerIntent: 'ACKNOWLEDGMENT',
             lastAssistantAction: 'ACKNOWLEDGED_CLOSING',
             pendingQuestion: 'NONE',
-            actionType: 'CALLBACK',
-            actionStatus: 'CONFIRMED',
+            actionType: state.actionType || 'NONE',
+            actionStatus: state.actionStatus || 'NONE',
             actionTime: existingTime,
-            actionConfirmed: true,
+            actionConfirmed: state.actionConfirmed || false,
           },
           extractedData: { actionTime: existingTime },
-          interestLevel: 'HIGH',
-          followUpRequired: true,
-          followUpReason: `Callback confirmed for ${existingTime || 'requested time'}`,
-          summary: `${state.leadName} acknowledged callback for ${existingTime || 'scheduled time'}. Conversation idle.`,
+          interestLevel: wasConfirmed ? 'HIGH' : 'MEDIUM',
+          followUpRequired: wasConfirmed,
+          followUpReason: wasConfirmed
+            ? `Callback confirmed for ${existingTime || 'requested time'}`
+            : 'Conversation acknowledged and closed',
+          summary: `${state.leadName} sent closing acknowledgment. Conversation idle with no unnecessary reply.`,
         };
       }
 
-      // Customer sends "Ok", "Great", or another acknowledgment after conversation is already acknowledged or closed
-      // Support NO_REPLY: do not spam customer with repeated confirmations!
+      // 2. Customer acknowledges or thanks Aria
+      let replyMessage: string;
+      if (isThanks) {
+        replyMessage = `You're welcome, ${state.leadName}! 😊`;
+        if (wasConfirmed && existingTime) {
+          replyMessage += ` Our team will call you ${existingTime}.`;
+        }
+      } else {
+        // Customer says "ohk", "ok", "theek hai", "got it", "understood", "sahi hai"
+        if (wasConfirmed && existingTime) {
+          replyMessage = `Great, ${state.leadName}! Our team will connect with you ${existingTime}. Feel free to ask if you need anything else! 😊`;
+        } else if (state.lastAssistantAction === 'ANSWERED_QUESTION') {
+          replyMessage = `Glad to help, ${state.leadName}! 😊 Let me know if you need any more details about ${project.name} or if you'd like to schedule a site visit.`;
+        } else {
+          replyMessage = `Glad to help, ${state.leadName}! Feel free to reach out if you have any questions about ${project.name}. Have a great day ahead! 😊`;
+        }
+      }
+
       return {
         intent: 'ACKNOWLEDGMENT',
-        proposedAction: { type: 'NO_REPLY' },
-        shouldSendReply: false,
-        replyMessage: null,
+        proposedAction: { type: 'POLITE_CLOSING' },
+        shouldSendReply: true,
+        replyMessage,
         updatedState: {
           status: 'IDLE',
           lastCustomerIntent: 'ACKNOWLEDGMENT',
-          lastAssistantAction: state.lastAssistantAction as AssistantActionType || 'ACKNOWLEDGED_CLOSING',
+          lastAssistantAction: 'ACKNOWLEDGED_CLOSING',
           pendingQuestion: 'NONE',
-          actionType: 'CALLBACK',
-          actionStatus: 'CONFIRMED',
+          actionType: state.actionType || 'NONE',
+          actionStatus: state.actionStatus || 'NONE',
           actionTime: existingTime,
-          actionConfirmed: true,
+          actionConfirmed: state.actionConfirmed || false,
         },
         extractedData: { actionTime: existingTime },
-        interestLevel: 'HIGH',
-        followUpRequired: true,
-        followUpReason: `Callback confirmed for ${existingTime || 'requested time'}`,
-        summary: `${state.leadName} sent closing acknowledgment. Conversation marked idle with no unnecessary reply.`,
+        interestLevel: wasConfirmed ? 'HIGH' : 'MEDIUM',
+        followUpRequired: wasConfirmed,
+        followUpReason: wasConfirmed
+          ? `Callback confirmed for ${existingTime || 'requested time'}`
+          : 'Lead acknowledged project information',
+        summary: `${state.leadName} sent acknowledgment ("${rawText}"). Aria closed politely.`,
       };
     }
 
@@ -275,8 +292,7 @@ export class ConversationEngine {
         rawText,
         state,
         project,
-        history,
-        conversationSummary
+        history
       );
 
       return {
@@ -456,6 +472,36 @@ export class ConversationEngine {
     // ------------------------------------------------------------------------
     // DEFAULT / AMBIGUOUS / GENERAL INQUIRY
     // ------------------------------------------------------------------------
+    // If the conversation is already underway, do NOT send the introductory greeting!
+    if (history.length > 1 || state.lastAssistantAction) {
+      const ongoingReply =
+        wasConfirmed && existingTime
+          ? `Our team will connect with you ${existingTime}. Please let me know if you have any other questions regarding ${project.name}! 😊`
+          : `Please let me know if you have any questions regarding configurations, pricing, or location for ${project.name}, or if you would like our sales team to give you a call! 😊`;
+
+      return {
+        intent: 'AMBIGUOUS',
+        proposedAction: { type: 'ANSWER_QUESTION' },
+        shouldSendReply: true,
+        replyMessage: ongoingReply,
+        updatedState: {
+          status: 'ACTIVE',
+          lastCustomerIntent: 'AMBIGUOUS',
+          lastAssistantAction: 'ANSWERED_QUESTION',
+          pendingQuestion: 'NONE',
+          actionType: state.actionType || 'NONE',
+          actionStatus: state.actionStatus || 'NONE',
+          actionTime: state.actionTime || null,
+          actionConfirmed: state.actionConfirmed || false,
+        },
+        extractedData: {},
+        interestLevel: wasConfirmed ? 'HIGH' : 'MEDIUM',
+        followUpRequired: wasConfirmed,
+        followUpReason: wasConfirmed ? `Callback scheduled for ${existingTime}` : 'Active inquiry in progress',
+        summary: `${state.leadName} continued conversation regarding ${project.name}.`,
+      };
+    }
+
     return {
       intent: 'AMBIGUOUS',
       proposedAction: { type: 'ANSWER_QUESTION' },
@@ -543,7 +589,11 @@ export class ConversationEngine {
 
     // 2. Pending Question Context Overrides
     if (pendingQuestion === 'CALLBACK_OFFER') {
-      if (/\b(ok|okay|yes|sure|haan|ha|definitely|fine|please|karna|connect|yep|yeah)\b/i.test(textLower)) {
+      if (
+        /\b(ok|okay|ohk|okk|okkk|okey|k|kk|yes|sure|haan|ha|definitely|fine|please|karna|kar lo|connect|yep|yeah)\b/i.test(
+          textLower
+        )
+      ) {
         return 'CALLBACK_REQUEST';
       }
     }
@@ -568,11 +618,15 @@ export class ConversationEngine {
       }
 
       // Check for Acknowledgment
-      if (/\b(thank|thanks|thx|dhanyawad|shukriya)\b/i.test(textLower)) {
+      if (/\b(thank|thanks|thx|dhanyawad|dhanyavad|shukriya)\b/i.test(textLower)) {
         return 'ACKNOWLEDGMENT';
       }
 
-      if (/\b(ok|okay|k|great|good|fine|cool|understood|got it|theek hai|thik hai|sahi hai|perfect|done|super|awesome|👍|👌)\b/i.test(textLower)) {
+      if (
+        /\b(ok|okay|ohk|okk|okkk|okey|k|kk|great|good|fine|cool|understood|got it|noted|gotcha|alright|all right|theek hai|thik hai|thek hai|theek|thik|sahi hai|sahi|accha|achha|acha|achha ji|acha ji|perfect|done|super|awesome|👍|👌|🙏)\b/i.test(
+          textLower
+        )
+      ) {
         return 'ACKNOWLEDGMENT';
       }
 
@@ -623,7 +677,11 @@ export class ConversationEngine {
     }
 
     // 9. Standard Acknowledgment
-    if (/\b(thank|thanks|ok|okay|great|understood|got it|sure|theek hai)\b/i.test(textLower)) {
+    if (
+      /\b(thank|thanks|thx|dhanyawad|dhanyavad|shukriya|ok|okay|ohk|okk|okkk|okey|k|kk|great|good|fine|cool|understood|got it|noted|gotcha|alright|all right|sure|theek hai|thik hai|thek hai|theek|thik|accha|achha|acha|achha ji|acha ji|sahi hai|sahi|perfect|done|super|awesome|👍|👌|🙏)\b/i.test(
+        textLower
+      )
+    ) {
       return 'ACKNOWLEDGMENT';
     }
 
@@ -637,8 +695,7 @@ export class ConversationEngine {
     question: string,
     state: ConversationState,
     project: ProjectContext,
-    history: ConversationMessageHistory[],
-    conversationSummary?: string | null
+    history: ConversationMessageHistory[]
   ): Promise<string> {
     const qLower = question.toLowerCase();
 
@@ -703,8 +760,7 @@ export class ConversationEngine {
         state.leadName,
         question,
         history,
-        project,
-        conversationSummary
+        project
       );
       if (groqResult && groqResult.nextSuggestedMessage) {
         return groqResult.nextSuggestedMessage;
@@ -718,7 +774,26 @@ export class ConversationEngine {
    * Helper: extract time phrases (e.g. "Today around 6:30 PM", "7:00 PM", "tomorrow 4pm")
    */
   public extractTimePhrase(text: string): string | null {
-    // 1. Matches "today around 6:30 PM", "tomorrow 5:00 pm", "today at 7 PM"
+    // 1. Matches "5 o clock", "5 o'clock", "5oclock", "today at 5 o clock"
+    const oClockMatch = text.match(
+      /(today|tomorrow|kal|aaj)?\s*(around|at|by|approx)?\s*([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(?:o['’\s]?clock)\b(?:\s*(today|tomorrow|evening|morning|afternoon|kal|aaj))?/i
+    );
+    if (oClockMatch) {
+      let rawH = parseInt(oClockMatch[3], 10);
+      const isMorning = /\b(morning|mornig|subah|am)\b/i.test(text);
+      if (isMorning) {
+        if (rawH === 12) rawH = 0;
+      } else if (rawH >= 1 && rawH <= 7) {
+        // In real-estate business context, 1 to 7 o'clock defaults to PM (e.g. 5 o clock = 5 PM)
+        rawH += 12;
+      }
+      const displayHour = rawH > 12 ? rawH - 12 : rawH === 0 ? 12 : rawH;
+      const meridiem = rawH >= 12 ? 'PM' : 'AM';
+      const dayPrefix = oClockMatch[1] ? `${oClockMatch[1].toLowerCase()} at ` : '';
+      return `${dayPrefix || 'today at '}${displayHour}:00 ${meridiem}`.trim();
+    }
+
+    // 2. Matches "today around 6:30 PM", "tomorrow 5:00 pm", "today at 7 PM"
     const fullMatch = text.match(
       /(today|tomorrow|kal|aaj)?\s*(around|at|by|approx)?\s*([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm|baje)\b(?:\s*(today|tomorrow|evening|morning|afternoon|kal|aaj))?/i
     );
@@ -726,16 +801,28 @@ export class ConversationEngine {
       return fullMatch[0].trim();
     }
 
-    // 2. Matches "6:30 PM", "7:00 PM", "4pm", "6 PM"
+    // 3. Matches "6:30 PM", "7:00 PM", "4pm", "6 PM"
     const simpleTimeMatch = text.match(/\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm)\b/i);
     if (simpleTimeMatch) {
       return simpleTimeMatch[0].trim();
     }
 
-    // 3. Matches "6:30" or "7:00" if in context of evening/time
+    // 4. Matches "6:30" or "7:00" if in context of evening/time
     const digitMatch = text.match(/\b([0-1]?[0-9]|2[0-3]):([0-5][0-9])\b/);
     if (digitMatch) {
       return digitMatch[0].trim();
+    }
+
+    // 5. Matches "at 5", "around 5", "by 5", "5 baje"
+    const bareMatch = text.match(/\b(?:at|around|by|approx)\s*([1-9]|1[0-2])\b|\b([1-9]|1[0-2])\s*baje\b/i);
+    if (bareMatch) {
+      const hStr = bareMatch[1] || bareMatch[2];
+      let h = parseInt(hStr, 10);
+      const isMorning = /\b(morning|mornig|subah|am)\b/i.test(text);
+      if (!isMorning && h >= 1 && h <= 7) h += 12;
+      const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      const meridiem = h >= 12 ? 'PM' : 'AM';
+      return `today at ${displayHour}:00 ${meridiem}`;
     }
 
     return null;

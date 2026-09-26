@@ -212,6 +212,46 @@ export class DateTimeResolver {
       };
     }
 
+    // Support "5 o clock", "5 o'clock", "5oclock", "5 baje"
+    const oClockMatch = text.match(/\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(?:o['’\s]?clock|baje)\b/i);
+    if (oClockMatch) {
+      let rawH = parseInt(oClockMatch[1], 10);
+      const min = oClockMatch[2] ? parseInt(oClockMatch[2], 10) : 0;
+      const isEveningNight = /\b(evening|evning|night|shaam|raat)\b/i.test(textLower);
+      const isMorning = /\b(morning|mornig|subah)\b/i.test(textLower);
+
+      if (isMorning) {
+        if (rawH === 12) rawH = 0;
+      } else if (isEveningNight || (rawH >= 1 && rawH <= 7)) {
+        // In real-estate business context, 1 to 7 o'clock defaults to PM (e.g. 5 o clock = 5 PM)
+        if (rawH < 12) rawH += 12;
+      }
+
+      return {
+        hasExplicitTime: true,
+        hasPeriodOfDay: false,
+        isRelativeOffset: false,
+        offsetMinutes: 0,
+        hour: rawH,
+        minute: min,
+      };
+    }
+
+    // Support "at 5", "around 5", "by 5"
+    const bareHourMatch = text.match(/\b(?:at|around|by|approx)\s*([1-9]|1[0-2])\b/i);
+    if (bareHourMatch) {
+      let rawH = parseInt(bareHourMatch[1], 10);
+      if (rawH >= 1 && rawH <= 7) rawH += 12;
+      return {
+        hasExplicitTime: true,
+        hasPeriodOfDay: false,
+        isRelativeOffset: false,
+        offsetMinutes: 0,
+        hour: rawH,
+        minute: 0,
+      };
+    }
+
     // Explicit clock time: e.g. "10:30 pm", "7:00 PM", "6:30", "11am", "10:30", "10:30 tomorrow mornig"
     const clockMatch = text.match(/\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))?\s*(am|pm|baje)?\b/i);
     if (clockMatch && (clockMatch[2] !== undefined || clockMatch[3] !== undefined || /\d{1,2}:\d{2}/.test(text))) {

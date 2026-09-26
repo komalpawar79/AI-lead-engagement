@@ -36,13 +36,6 @@ export interface InboundMessageEvent {
   timestamp: string;
 }
 
-export interface InboundStatusEvent {
-  messageId: string;
-  recipientId: string;
-  status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
-  timestamp: string;
-}
-
 class WhatsAppService {
   private phoneNumberId: string;
   private accessToken: string;
@@ -107,43 +100,6 @@ class WhatsAppService {
     }
 
     return events;
-  }
-
-  /**
-   * Parse status updates (sent, delivered, read, failed) from Meta WhatsApp webhook
-   */
-  public parseInboundStatuses(payload: any): InboundStatusEvent[] {
-    const statuses: InboundStatusEvent[] = [];
-
-    if (!payload?.entry) return statuses;
-
-    for (const entry of payload.entry) {
-      if (!entry.changes) continue;
-
-      for (const change of entry.changes) {
-        const val = change.value;
-        if (!val || !val.statuses) continue;
-
-        for (const st of val.statuses) {
-          if (st.id && st.status) {
-            let normalizedStatus: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' = 'SENT';
-            const rawStatus = (st.status || '').toLowerCase();
-            if (rawStatus === 'delivered') normalizedStatus = 'DELIVERED';
-            else if (rawStatus === 'read') normalizedStatus = 'READ';
-            else if (rawStatus === 'failed') normalizedStatus = 'FAILED';
-
-            statuses.push({
-              messageId: st.id,
-              recipientId: st.recipient_id || '',
-              status: normalizedStatus,
-              timestamp: st.timestamp,
-            });
-          }
-        }
-      }
-    }
-
-    return statuses;
   }
 
   /**

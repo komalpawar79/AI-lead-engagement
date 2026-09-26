@@ -118,32 +118,19 @@ ${project.fullAddress ? `- Full Address: ${project.fullAddress}\n` : ''}${projec
 
 
 /**
- * 4. Conversation History Formatter with Rolling Summary Support
+ * 4. Conversation History Formatter
  */
-export const formatConversationHistory = (
-  history: ConversationMessageHistory[],
-  summary?: string | null
-): string => {
-  let output = '';
-
-  if (summary && summary.trim().length > 0) {
-    output += `PREVIOUS CONVERSATION CONTEXT & SUMMARY (Earlier messages condensed):\n${summary.trim()}\n\n`;
-  }
-
+export const formatConversationHistory = (history: ConversationMessageHistory[]): string => {
   if (!history || history.length === 0) {
-    output += output ? 'No recent messages.' : 'No previous conversation history.';
-    return output;
+    return 'No previous conversation history.';
   }
 
-  output += `RECENT CONVERSATION HISTORY (in chronological order):\n`;
-  output += history
+  return history
     .map((msg) => {
       const role = msg.senderType === 'AI' ? 'Assistant' : msg.senderType === 'CUSTOMER' ? 'Customer' : 'System';
       return `${role}: ${msg.messageText}`;
     })
     .join('\n');
-
-  return output.trim();
 };
 
 /**

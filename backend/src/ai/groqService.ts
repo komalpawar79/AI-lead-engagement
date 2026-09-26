@@ -60,12 +60,11 @@ class GroqService {
     customerName: string,
     customerMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext,
-    summary?: string | null
+    project: ProjectContext
   ): Promise<StructuredAIOutput> {
     if (this.groqClient) {
       try {
-        const result = await this.callGroq(customerName, customerMessage, history, project, summary);
+        const result = await this.callGroq(customerName, customerMessage, history, project);
         logger.info({ model: result.model, intent: result.intent }, 'Groq responded successfully.');
         return result;
       } catch (err: any) {
@@ -80,12 +79,12 @@ class GroqService {
           },
           'Groq API call failed — falling back to heuristic engine. Check GROQ_API_KEY and GROQ_MODEL.'
         );
-        return this.fallbackAnalysis(customerName, customerMessage, history, project, summary);
+        return this.fallbackAnalysis(customerName, customerMessage, history, project);
       }
     }
 
     logger.warn('Groq client not initialized — using heuristic fallback.');
-    return this.fallbackAnalysis(customerName, customerMessage, history, project, summary);
+    return this.fallbackAnalysis(customerName, customerMessage, history, project);
   }
 
   /**
@@ -95,8 +94,7 @@ class GroqService {
     customerName: string,
     customerMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext,
-    summary?: string | null
+    project: ProjectContext
   ): Promise<StructuredAIOutput> {
     const model = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 
@@ -136,7 +134,7 @@ CONVERSATION FLOW GUIDELINES:
 PROJECT: ${project.name}
 
 CONVERSATION HISTORY (in chronological order):
-${formatConversationHistory(history, summary)}
+${formatConversationHistory(history)}
 
 LATEST MESSAGE FROM ${customerName}:
 "${customerMessage}"
@@ -230,13 +228,11 @@ Analyze the conversation context and return the structured JSON object.`;
     customerName: string,
     customerMessage: string,
     history: ConversationMessageHistory[],
-    project: ProjectContext,
-    conversationSummary?: string | null
+    project: ProjectContext
   ): StructuredAIOutput {
     const text = customerMessage.toLowerCase().trim();
 
     const customerMessages = [
-      ...(conversationSummary ? [conversationSummary.toLowerCase()] : []),
       ...history.filter((m) => m.senderType === 'CUSTOMER').map((m) => m.messageText.toLowerCase()),
       text,
     ];
